@@ -1,0 +1,283 @@
+# DRAFT findings from PMC8024495 (Petry et al. 2021, Front. Microbiol., CC BY) for PRJNA667518.
+# Not loaded anywhere: this file exists to design the findings table. Review it, then we design the table.
+#
+#   python scripts/check_findings_quotes.py conf/findings/PRJNA667518_draft.yml ~/lab/raw/europepmc/20261011T090319Z/PMC8024495
+#
+# What the text gives, and what it doesn't:
+#   - direction + contrast + site/material + a threshold (Q < 0.05 for features, p for alpha diversity)
+#   - NO effect sizes: log2 fold changes exist only as bars in Figures 3–8 (images). effect: null everywhere.
+#   - abundance from SILVA 132 / mothur 99 % OTUs; the catalog's PGMD profiles are Greengenes 13_8, so a
+#     paper genus label is not a PGMD genus label (e.g. 'Ruminococcaceae_UCG-005', 'Prevotella_9').
+#   - "prevalence" and "abundance" are used interchangeably in Results; every claim here is measure
+#     relative_abundance unless the text names an index or a gene count.
+#
+# Shape of one claim (each key is a candidate column):
+#   contrast    treatment vs reference, both diet levels from conf/designs/PRJNA667518.yml
+#   site        UBERON term (app/ingest/vocab.py); material digesta | mucosa
+#   measure     relative_abundance | alpha_chao1 | alpha_shannon | alpha_simpson | predicted_gene_count |
+#               n_significant_features
+#   feature     kind (genus | otu | alpha_index | enzyme | feature_set), label as printed, rank, taxonomy
+#   direction   increase | decrease | no_difference  (of treatment relative to reference)
+#   stat        {kind: Q | p, op, value} as printed
+#   effect      null: figure only
+#   flags       anything a reviewer must decide; a flagged claim is not loadable as curated until resolved
+#
+# Design points this draft surfaces (each shows up in at least one claim below):
+#   1. one quote → many claims (a sentence lists several taxa): claims point to a shared quote
+#   2. OTU ids are scoped to ONE site × material clustering: OTU_160 is Faecalibacterium in caecal
+#      digesta but Acetitomaculum in caecal mucosa. An OTU feature key must include its dataset.
+#   3. null results exist (no_difference, Q > 0.10, p = 0.117) and are worth storing
+#   4. alpha diversity is reported against a ranking/grouping, not a pairwise contrast
+#   5. summary counts ("44 up, 19 down of the top 200 OTUs") are claims about a feature SET
+#   6. PICRUSt2 enzymes are named, not numbered: an EC number would be our inference
+
+bioproject: PRJNA667518
+pmcid: PMC8024495
+experiment: main
+taxonomy: SILVA 132 (mothur v1.40.4, 99 % OTUs)
+review:
+  reviewed_by: null
+  reviewed_on: null
+
+claims:
+  # ---- genus level, Figure 3 ------------------------------------------------------------------
+  - id: g-cae-dig-hf-lf-lactobacillus
+    contrast: {treatment: HF, reference: LF}
+    site: UBERON:0001153          # caecum
+    material: digesta
+    measure: relative_abundance
+    feature: {kind: genus, label: Lactobacillus, rank: genus}
+    direction: decrease
+    stat: {kind: Q, op: "<", value: 0.05}
+    effect: null
+    figure: "Figure 3"
+    section: Treatment Modulation of Microbial Genera in the Cecum
+    quote: "Relative to LF, HF increased Treponema_2 and Ruminococcaceae_UCG-005, and reduced Turicibacter and Lactobacillus in cecal contents (Figure 3; Q < 0.05)."
+    flags: []
+
+  - id: g-cae-muc-xy-hf-faecalibacterium
+    contrast: {treatment: HF+XY, reference: HF}
+    site: UBERON:0001153
+    material: mucosa
+    measure: relative_abundance
+    feature: {kind: genus, label: Faecalibacterium, rank: genus}
+    direction: increase
+    stat: {kind: Q, op: "<", value: 0.05}
+    effect: null
+    figure: "Figure 3"
+    section: Treatment Modulation of Microbial Genera in the Cecum
+    quote: "Relative to HF, HF+XY increased Faecalibacterium in the cecal mucosa, and decreased the prevalence of Campylobacter (Q < 0.05)."
+    flags: []
+
+  - id: g-col-dig-xy-hf-lactobacillus
+    contrast: {treatment: HF+XY, reference: HF}
+    site: UBERON:0001155          # colon
+    material: digesta
+    measure: relative_abundance
+    feature: {kind: genus, label: Lactobacillus, rank: genus}
+    direction: increase
+    stat: {kind: Q, op: "<", value: 0.05}
+    effect: null
+    figure: "Figure 3"
+    section: Treatment Modulation of Microbial Genera in the Colon
+    quote: "Contrarily in the colonic contents, when compared to HF, HF+XY increased the abundance of Megasphaera and Lactobacillus but decreased the prevalence of Rikenellaceae_RC9_gut_group and Treponema_2 (Q < 0.05)."
+    flags: []
+
+  - id: g-col-muc-xy-hf-campylobacter
+    contrast: {treatment: HF+XY, reference: HF}
+    site: UBERON:0001155
+    material: mucosa
+    measure: relative_abundance
+    feature: {kind: genus, label: Campylobacter, rank: genus}
+    direction: decrease
+    stat: {kind: Q, op: "<", value: 0.05}
+    effect: null
+    figure: "Figure 3"
+    section: Treatment Modulation of Microbial Genera in the Colon
+    quote: "Moreover, the addition of xylanase to HF increased the abundance of Lactobacillus, Gammaproteobacteria_unclassified, and Ruminococcaceae_UCG-014 in the colonic mucosa, but decreased the abundance of Campylobacter, Streptococcus, and Helicobacter (Q < 0.05)."
+    flags: []
+
+  - id: g-col-muc-xy-hf-gammaproteobacteria-unclassified
+    contrast: {treatment: HF+XY, reference: HF}
+    site: UBERON:0001155
+    material: mucosa
+    measure: relative_abundance
+    feature: {kind: genus, label: Gammaproteobacteria_unclassified, rank: class}
+    direction: increase
+    stat: {kind: Q, op: "<", value: 0.05}
+    effect: null
+    figure: "Figure 3"
+    section: Treatment Modulation of Microbial Genera in the Colon
+    quote: "Moreover, the addition of xylanase to HF increased the abundance of Lactobacillus, Gammaproteobacteria_unclassified, and Ruminococcaceae_UCG-014 in the colonic mucosa, but decreased the abundance of Campylobacter, Streptococcus, and Helicobacter (Q < 0.05)."
+    flags:
+      - "label_rank: a genus-level row whose label is only resolved to class; rank recorded as class"
+      - "shared_quote: same sentence as g-col-muc-xy-hf-campylobacter (design point 1)"
+
+  - id: g-col-muc-ax-hf-lactobacillus
+    contrast: {treatment: HF+AX, reference: HF}
+    site: UBERON:0001155
+    material: mucosa
+    measure: relative_abundance
+    feature: {kind: genus, label: Lactobacillus, rank: genus}
+    direction: decrease
+    stat: {kind: Q, op: "<", value: 0.05}
+    effect: null
+    figure: "Figure 3"
+    section: Treatment Modulation of Microbial Genera in the Colon
+    quote: "Within the colonic mucosa, compared with the HF, HF+AX increased the abundance of Prevotella_9 and Gammaproteobacteria_unclassified, but reduced the abundance of Lactobacillus (Q < 0.05)."
+    flags: []
+    note: "opposite direction to HF+XY in colonic mucosa (Lactobacillus up): the kind of contrast a findings table should make easy to query"
+
+  - id: g-cae-dig-ax-hf-top20-null
+    contrast: {treatment: HF+AX, reference: HF}
+    site: UBERON:0001153
+    material: digesta
+    measure: relative_abundance
+    feature: {kind: feature_set, label: "20 most abundant genera", rank: genus}
+    direction: no_difference
+    stat: {kind: Q, op: ">", value: 0.10}
+    effect: null
+    figure: null
+    section: Treatment Modulation of Microbial Genera in the Cecum
+    quote: "The 20 most abundant genera did not differ between HF and HF+AX in the cecal contents (Q > 0.10)"
+    flags: []
+
+  - id: g-cae-ax-hf-streptococcus
+    contrast: {treatment: HF+AX, reference: HF}
+    site: UBERON:0001153
+    material: mucosa                # by elimination only: see flag
+    measure: relative_abundance
+    feature: {kind: genus, label: Streptococcus, rank: genus}
+    direction: increase
+    stat: {kind: Q, op: "<", value: 0.05}
+    effect: null
+    figure: "Figure 3"
+    section: Treatment Modulation of Microbial Genera in the Cecum
+    quote: "but HF+AX did increase the abundance of Streptococcus and decreased the prevalence of Campylobacter (Q < 0.05)."
+    flags:
+      - "material_ambiguous: the sentence names no material; mucosa is inferred because the same sentence says caecal contents did not differ (curation fact ambiguity-hfax-cecum-site). Check Figure 3 before keeping."
+
+  # ---- OTU level, Figures 4–7 -----------------------------------------------------------------
+  - id: otu-cae-dig-xy-hf-otu160
+    contrast: {treatment: HF+XY, reference: HF}
+    site: UBERON:0001153
+    material: digesta
+    measure: relative_abundance
+    feature: {kind: otu, label: OTU_160_Faecalibacterium, rank: otu, otu_dataset: "caecum digesta clustering"}
+    direction: increase
+    stat: {kind: Q, op: "<", value: 0.05}
+    effect: null
+    figure: "Figure 4B"
+    section: Treatment Modulation of the 200 Most Abundant OTUs in the Cecal Contents
+    quote: "and increased the abundance of OTU_160_Faecalibacterium"
+    flags:
+      - "otu_scope: OTU_160 in the caecal mucosa table is Acetitomaculum (see otu-cae-muc-ax-hf-otu160): OTU ids are per site × material (design point 2)"
+
+  - id: otu-cae-muc-ax-hf-otu160
+    contrast: {treatment: HF+AX, reference: HF}
+    site: UBERON:0001153
+    material: mucosa
+    measure: relative_abundance
+    feature: {kind: otu, label: OTU_160_Acetitomaculum, rank: otu, otu_dataset: "caecum mucosa clustering"}
+    direction: decrease
+    stat: {kind: Q, op: "<", value: 0.05}
+    effect: null
+    figure: "Figure 5C"
+    section: Treatment Modulation of the 200 Most Abundant OTUs in the Cecal Mucosa
+    quote: "Notably, HF+AX had a greater abundance of OTU_1_Streptococcus and OTU_174_Helicobacter, and decreased prevalence of OTU_193_Selenomonas and OTU_160_Acetitomaculum."
+    flags:
+      - "stat_implied: this sentence has no Q; the threshold comes from the Figure 5 legend (Q < 0.05)"
+
+  - id: otu-cae-dig-hf-lf-count
+    contrast: {treatment: HF, reference: LF}
+    site: UBERON:0001153
+    material: digesta
+    measure: n_significant_features
+    feature: {kind: feature_set, label: "200 most abundant OTUs", rank: otu, otu_dataset: "caecum digesta clustering"}
+    direction: {increase: 44, decrease: 19}
+    stat: {kind: Q, op: "<", value: 0.05}
+    effect: null
+    figure: "Figure 4A"
+    section: Treatment Modulation of the 200 Most Abundant OTUs in the Cecal Contents
+    quote: "Compared to LF, HF significantly increased the prevalence of 44, and reduced 19, of the 200 most prevalent OTUs characterized from cecal contents (Figure 4A)."
+    flags:
+      - "summary_claim: a count over a feature set, not one feature (design point 5); direction holds two numbers"
+
+  # ---- alpha diversity, Figure 1 --------------------------------------------------------------
+  - id: a-cae-muc-hf-lf-chao1
+    contrast: {treatment: HF, reference: LF}
+    site: UBERON:0001153
+    material: mucosa
+    measure: alpha_chao1
+    feature: {kind: alpha_index, label: Chao1, rank: otu}
+    direction: increase
+    stat: {kind: p, op: "<", value: 0.05}
+    effect: null
+    figure: "Figure 1"
+    section: Alpha-Diversity
+    quote: "Compared to LF, HF, HF+XY, and HF+AX had greater Chao1 and Shannon indices in the cecal mucosa (p < 0.05), but did not differ for the Simpson index (p = 0.117)."
+    flags:
+      - "shared_quote: the sentence yields 6 claims (3 treatments × Chao1, Shannon) plus the Simpson null; only 1 + 1 drafted"
+
+  - id: a-cae-muc-simpson-null
+    contrast: {treatment: all, reference: null}
+    site: UBERON:0001153
+    material: mucosa
+    measure: alpha_simpson
+    feature: {kind: alpha_index, label: Simpson, rank: otu}
+    direction: no_difference
+    stat: {kind: p, op: "=", value: 0.117}
+    effect: null
+    figure: "Figure 1"
+    section: Alpha-Diversity
+    quote: "Compared to LF, HF, HF+XY, and HF+AX had greater Chao1 and Shannon indices in the cecal mucosa (p < 0.05), but did not differ for the Simpson index (p = 0.117)."
+    flags:
+      - "omnibus: an overall treatment test, not a pairwise contrast (design point 4)"
+
+  - id: a-col-dig-xy-hf-shannon
+    contrast: {treatment: HF+XY, reference: HF}
+    site: UBERON:0001155
+    material: digesta
+    measure: alpha_shannon
+    feature: {kind: alpha_index, label: Shannon, rank: otu}
+    direction: decrease
+    stat: {kind: p, op: "<", value: 0.05}
+    effect: null
+    figure: "Figure 1"
+    section: Alpha-Diversity
+    quote: "For the Shannon and Simpson indices, HF and HF+AX were greater than LF and HF+XY (p < 0.05)."
+    flags:
+      - "grouped_comparison: {HF, HF+AX} > {LF, HF+XY}; the HF+XY vs HF pair is read out of a grouping, not reported as a contrast (design point 4)"
+
+  # ---- PICRUSt2 predicted genes, Figure 8 -----------------------------------------------------
+  - id: p-cae-dig-xy-hf-xylanase
+    contrast: {treatment: HF+XY, reference: HF}
+    site: UBERON:0001153
+    material: digesta
+    measure: predicted_gene_count
+    feature: {kind: enzyme, label: "endo-1,4-beta-xylanase", rank: null, ec: null}
+    direction: increase
+    stat: {kind: Q, op: "<", value: 0.05}
+    effect: null
+    figure: "Figure 8A"
+    section: PICRUSt2 Targeted Gene Characterizations
+    quote: "The addition of xylanase to HF increased predicted gene counts for acetate kinase, phosphate acetyltransferase, endo-1,4-beta-xylanase, acetate CoA-transferase, xylose isomerase, L-lactate dehydrogenase, and xylulose kinase (Q < 0.05)."
+    flags:
+      - "ec_not_stated: the paper names enzymes, not EC numbers; mapping to EC 3.2.1.8 would be inferred, not curated (design point 6)"
+      - "predicted: PICRUSt2 2.3.0b inference from 16S, not measured gene content"
+
+  - id: p-cae-muc-ax-hf-alpha-galactosidase
+    contrast: {treatment: HF+AX, reference: HF}
+    site: UBERON:0001153
+    material: mucosa
+    measure: predicted_gene_count
+    feature: {kind: enzyme, label: alpha-galactosidase, rank: null, ec: null}
+    direction: increase
+    stat: null
+    effect: null
+    figure: "Figure 8B"
+    section: PICRUSt2 Targeted Gene Characterizations
+    quote: "The addition of AXOS to HF increased acetate-CoA ligase (ADP-forming), oligosaccharide reducing-end xylanase, and alpha-galactosidase predicted gene counts in the cecal mucosa."
+    flags:
+      - "stat_missing: the only PICRUSt2 sentence with no Q; the Figure 8 legend says 'significantly different'"
+      - "ec_not_stated"

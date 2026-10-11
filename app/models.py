@@ -202,7 +202,7 @@ class Assertion(Base):
     __tablename__ = "assertion"
     __table_args__ = (
         CheckConstraint("num_nonnulls(study_id, subject_id, sample_id, library_id, run_acc, genome_acc, "
-                        "experiment_id) = 1", name="assertion_one_entity"),
+                        "experiment_id, doc_id) = 1", name="assertion_one_entity"),
         CheckConstraint("num_nonnulls(value_text, value_term, value_num) >= 1", name="assertion_has_value"),
         Index("assertion_study_field_idx", "study_id", "field"),
         Index("assertion_subject_field_idx", "subject_id", "field"),
@@ -211,6 +211,7 @@ class Assertion(Base):
         Index("assertion_run_field_idx", "run_acc", "field"),
         Index("assertion_genome_field_idx", "genome_acc", "field"),
         Index("assertion_experiment_field_idx", "experiment_id", "field"),
+        Index("assertion_doc_field_idx", "doc_id", "field"),
         {"schema": "prov"},
     )
 
@@ -223,6 +224,8 @@ class Assertion(Base):
     genome_acc: Mapped[Optional[str]] = mapped_column(String, ForeignKey("ref.genome.accession"))
     experiment_id: Mapped[Optional[int]] = mapped_column(
         BigInteger, ForeignKey("core.experiment.experiment_id", name="assertion_experiment_id_fkey"))
+    doc_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("rag.document.doc_id", name="assertion_doc_id_fkey"))
     field: Mapped[str] = mapped_column(Text, nullable=False)
     value_text: Mapped[Optional[str]] = mapped_column(Text)
     value_term: Mapped[Optional[str]] = mapped_column(Text)
@@ -346,5 +349,62 @@ class SubjectFactorLevel(Base):
     factor_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     level_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     study_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+# ── papers (migration 08321dea2d44, design doc §5.7) ─────────────────────────
+
+DOC_KINDS = ("bioproject_desc", "abstract", "protocol", "source_docs", "paper", "own_draft", "own_methods",
+             "lab_note")
+LINK_METHODS = ("paper_data_availability", "pgmd", "ncbi_elink", "manual")
+
+
+class Document(Base):
+    """A paper or other document, keyed as Europe PMC keys it: (source, ext_id); pmid/pmcid/doi are alternates."""
+    __tablename__ = "document"
+    __table_args__ = (
+        UniqueConstraint("source", "ext_id", name="document_source_ext_id_key"),
+        CheckConstraint(_in("kind", DOC_KINDS), name="document_kind_check"),
+        CheckConstraint("visibility IN ('public', 'own', 'private')", name="document_visibility_check"),
+        CheckConstraint("pmcid IS NULL OR pmcid ~ '^PMC[0-9]+$'", name="document_pmcid_format"),
+        Index("document_pmid_key", "pmid", unique=True, postgresql_where=text("pmid IS NOT NULL")),
+        Index("document_pmcid_key", "pmcid", unique=True, postgresql_where=text("pmcid IS NOT NULL")),
+        Index("document_doi_key", text("lower(doi)"), unique=True, postgresql_where=text("doi IS NOT NULL")),
+        {"schema": "rag"},
+    )
+
+    doc_id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    ext_id: Mapped[str] = mapped_column(Text, nullable=False)
+    pmid: Mapped[Optional[str]] = mapped_column(Text)
+    pmcid: Mapped[Optional[str]] = mapped_column(Text)
+    doi: Mapped[Optional[str]] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    visibility: Mapped[str] = mapped_column(Text, nullable=False, server_default="public")
+    title: Mapped[Optional[str]] = mapped_column(Text)
+    journal: Mapped[Optional[str]] = mapped_column(Text)
+    pub_year: Mapped[Optional[int]] = mapped_column(Integer)
+    license: Mapped[Optional[str]] = mapped_column(Text)
+    is_open_access: Mapped[Optional[bool]] = mapped_column(Boolean)
+    raw_uri: Mapped[Optional[str]] = mapped_column(Text)
+    raw_sha256: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class StudyPublication(Base):
+    """Study ↔ paper, one row per way the link was established."""
+    __tablename__ = "study_publication"
+    __table_args__ = (
+        CheckConstraint(_in("link_method", LINK_METHODS), name="study_publication_link_method_check"),
+        Index("study_publication_doc_id_idx", "doc_id"),
+        {"schema": "core"},
+    )
+
+    study_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("core.study.study_id"), primary_key=True)
+    doc_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("rag.document.doc_id"), primary_key=True)
+    link_method: Mapped[str] = mapped_column(Text, primary_key=True)
+    evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

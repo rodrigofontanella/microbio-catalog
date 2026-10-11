@@ -1,0 +1,291 @@
+# Facts from the paper behind PRJNA667518, for review. Loaded as tier 'curated' only once signed below.
+#
+#   python -m app.ingest.curation conf/curation/PRJNA667518.yml --dry-run
+#
+# Drafted by Claude from PMC8024495 (Petry et al. 2021, Front Microbiol, doi 10.3389/fmicb.2021.619970, CC BY),
+# full text fetched 2026-10-11. Every quote is checked verbatim against that full text by the loader;
+# "not reported" facts are checked by searching the named sections for the given patterns.
+# Review: read each fact against its quote, fix or delete what you disagree with, then sign.
+
+bioproject: PRJNA667518
+pmcid: PMC8024495
+method: paper_methods:PMC8024495
+review:
+  reviewed_by: null        # your name, once you've reviewed every fact
+  reviewed_on: null        # YYYY-MM-DD
+
+facts:
+  # ── the animal = the experimental unit ─────────────────────────────────────
+  - id: one-pig-per-pen
+    target: {subjects: all}
+    field: subject_basis
+    value_text: "biosample_attr:Pen"          # same value as the 60 inferred rows; this makes it curated
+    section: Animals, Diets, and Experimental Design
+    quote: "Pigs were individually housed and fed ad libitum for 36 days"
+    note: "Individually housed, so one BioSample 'Pen' value = one pig."
+
+  # ── ARRIVE 2.0 Essential 10, on the experiment ─────────────────────────────
+  - id: arrive-1-design
+    target: {experiment: main}
+    field: "arrive:study_design"
+    value_text: "randomised complete block; 4 diets (LF and HF controls; HF+XY, HF+AX); blocked by initial body weight within 3 replicates of 20 gilts"
+    section: Animals, Diets, and Experimental Design
+    quote: "Sixty growing gilts with an initial body weight of 25.4 ± 0.9 kg were used in three replicates (20 gilts per replicate) of a 46-day trial."
+
+  - id: arrive-1-experimental-unit
+    target: {experiment: main}
+    field: "arrive:experimental_unit"
+    value_text: "pig"
+    section: Statistical Analysis
+    quote: "Yijkl is the observed value for lth experimental unit within the ith level of dietary treatment of the jth block for the lth pig in the kth replicate"
+
+  - id: arrive-2-sample-size
+    target: {experiment: main}
+    field: "arrive:sample_size"
+    value_num: 60
+    unit: animals
+    section: Animals, Diets, and Experimental Design
+    quote: "Sixty growing gilts"
+    note: "15 per diet (BioProject description and the loaded design: 4 × 15)."
+
+  - id: arrive-2-sample-size-justification
+    target: {experiment: main}
+    field: "arrive:sample_size_justification"
+    value_text: "not reported"
+    absent:
+      sections: ["Animals, Diets, and Experimental Design", "Statistical Analysis"]
+      patterns: ['power', 'sample size']
+    note: "Animal methods are deferred to Petry et al. 2020a, which may report it."
+
+  - id: arrive-3-inclusion-exclusion
+    target: {experiment: main}
+    field: "arrive:inclusion_exclusion"
+    value_text: "not reported"
+    absent:
+      sections: ["Animals, Diets, and Experimental Design", "Sample Collection", "Statistical Analysis"]
+      patterns: ['\bexclu(ded|sion|de)\b', '\binclusion\b', 'removed from (the )?(study|experiment|trial|analys)']
+
+  - id: arrive-4-randomisation
+    target: {experiment: main}
+    field: "arrive:randomisation"
+    value_text: "random assignment to diet within body-weight block; method of randomisation not reported"
+    section: Animals, Diets, and Experimental Design
+    quote: "Gilts were blocked by initial body weight and randomly assigned within a block to one of four dietary treatments"
+
+  - id: arrive-5-blinding
+    target: {experiment: main}
+    field: "arrive:blinding"
+    value_text: "not reported"
+    absent:
+      sections: ["Animals, Diets, and Experimental Design", "Sample Collection", "DNA Extraction and 16S rRNA Gene Illumina MiSeq Sequencing", "Statistical Analysis"]
+      patterns: ['blind', 'mask']
+
+  - id: arrive-6-outcomes
+    target: {experiment: main}
+    field: "arrive:outcome_measures"
+    value_text: "relative abundance of the 20 most abundant genera and the top 200 OTUs; alpha diversity (Chao1, Shannon, Simpson); PICRUSt2-predicted counts of 25 enzymes"
+    section: Statistical Analysis
+    quote: "The top 200 individual OTUs, relative abundance of the 20 most abundant genera, and hidden-state predictions of the 25 microbial enzyme genes were analyzed using a negative binomial distribution"
+
+  - id: arrive-7-statistics
+    target: {experiment: main}
+    field: "arrive:statistical_methods"
+    value_text: "negative binomial GLIMMIX offset by library size; FDR (MULTTEST) Q < 0.05; diversity by PROC MIXED, Fisher's LSD p < 0.05"
+    section: Statistical Analysis
+    quote: "The MULTTEST procedure of SAS was used to correct p values for false discovery rates (Q values)."
+
+  - id: analysis-model-as-reported
+    target: {experiment: main}
+    field: analysis_model
+    value_text: "diet fixed (4 levels); block random (j = 1-5); replicate random (k = 1-3); block and replicate CROSSED as written"
+    section: Statistical Analysis
+    quote: "υj is the random effect of the jth block (j = 1–5); ρk is the random effect of the kth replicate (k = 1–3)"
+    note: >-
+      Differs from the design structure: blocks were formed within each replicate (design spec nests
+      block in rep). Decided 2026-10-11: keep the nesting in the design; record the authors' model here.
+
+  - id: analysis-model-formula
+    target: {experiment: main}
+    field: analysis_model_formula
+    value_text: "Yijkl = μ + τi + υj + ρk + eijkl"
+    section: Statistical Analysis
+    quote: "Yijkl=μ+τi+υj+ρk+eijkl"
+
+  - id: planned-contrasts
+    target: {experiment: main}
+    field: planned_contrasts
+    value_text: "LF vs HF; HF vs HF+XY; HF vs HF+AX"
+    section: Statistical Analysis
+    quote: "the LOG2 fold change and respective standard errors, were calculated comparing LF vs. HF, HF vs. HF+XY, and HF vs. HF+AX"
+
+  - id: arrive-8-animals-sex
+    target: {experiment: main}
+    field: "arrive:animals_sex"
+    value_text: "female (gilts)"
+    section: Animals, Diets, and Experimental Design
+    quote: "Sixty growing gilts"
+
+  - id: arrive-8-animals-weight
+    target: {experiment: main}
+    field: "arrive:animals_initial_body_weight"
+    value_num: 25.4
+    unit: kg
+    section: Animals, Diets, and Experimental Design
+    quote: "initial body weight of 25.4 ± 0.9 kg"
+    note: "Mean ± SD/SE not stated; 0.9 kg recorded only here."
+
+  - id: arrive-8-animals-age
+    target: {experiment: main}
+    field: "arrive:animals_age"
+    value_text: "not reported"
+    absent:
+      sections: ["Animals, Diets, and Experimental Design"]
+      patterns: ['\bage\b', 'days? old', 'weeks? old']
+
+  - id: arrive-9-housing-feeding
+    target: {experiment: main}
+    field: "arrive:procedures_housing"
+    value_text: "individually housed, ad libitum days 0-36; metabolism crates days 36-46, limit-fed 80% of average daily feed intake"
+    section: Animals, Diets, and Experimental Design
+    quote: "On day 36, pigs were moved to metabolism crates for a 10-day metabolism study reported by Petry et al. (2020a)."
+
+  - id: diet-duration
+    target: {experiment: main}
+    field: diet_duration_days
+    value_num: 46
+    unit: d
+    section: Animals, Diets, and Experimental Design
+    quote: "of a 46-day trial"
+
+  - id: ethics
+    target: {experiment: main}
+    field: "arrive:ethics"
+    value_text: "Iowa State University IACUC #9-17-8613-S"
+    section: Ethics Statement
+    quote: "Institutional Animal Care and Use Committee at Iowa State University (IACUC #9-17-8613-S)"
+
+  - id: negative-controls
+    target: {experiment: main}
+    field: negative_controls
+    value_text: "not reported"
+    absent:
+      sections: ["Sample Collection", "DNA Extraction and 16S rRNA Gene Illumina MiSeq Sequencing", "Sequence Analyses and Prediction of Functional Potential"]
+      patterns: ['blank', 'negative control', 'mock']
+    note: "No extraction blanks or mock community mentioned; matters for the mucosa samples."
+
+  # ── sampling: what each BioSample type is ─────────────────────────────────
+  - id: sampling-cecum-digesta
+    target: {samples: {field: env_local_scale, equals: "cecum digesta"}}
+    field: sampling_detail
+    value_text: "cecal contents, ~30 ml, subsampled, snap-frozen, -80 °C"
+    section: Sample Collection
+    quote: "Approximately, 30 ml of cecal contents was collected, subsampled, snap-frozen in liquid nitrogen, and stored at −80°C pending DNA extraction."
+
+  - id: sampling-cecum-mucosa
+    target: {samples: {field: env_local_scale, equals: "cecum mucosa"}}
+    field: sampling_detail
+    value_text: "mucosal scrapings from the apex of the cecum, rinsed with sterile PBS"
+    section: Sample Collection
+    quote: "The apex of the cecum was isolated and rinsed with sterile phosphate buffered solution to remove remnants, and mucosal scrapings were carefully collected from the tissue"
+
+  - id: sampling-colon-digesta
+    target: {samples: {field: env_local_scale, equals: "colon digesta"}}
+    field: sampling_detail
+    value_text: "contents from the ascending portion of the spiral colon"
+    section: Sample Collection
+    quote: "contents from the ascending portion of the spiral colon were collected"
+
+  - id: sampling-colon-mucosa
+    target: {samples: {field: env_local_scale, equals: "colon mucosa"}}
+    field: sampling_detail
+    value_text: "mucosal scrapings from a ~4 cm section proximal to the ascending spiral colon, flushed with sterile PBS"
+    section: Sample Collection
+    quote: "An approximately 4-cm long section proximal to the ascending spiral colon was isolated and flushed with sterile phosphate buffered solution."
+
+  # ── the libraries: marker, region, wet lab ────────────────────────────────
+  - id: marker-region
+    target: {libraries: all}
+    field: target_region
+    value_text: "16S rRNA V4 (515F/806R)"
+    section: DNA Extraction and 16S rRNA Gene Illumina MiSeq Sequencing
+    quote: "515F (5'-GTGYCAGCMGCCGCGGTAA-3'; 21) and 806R (5'-GGACTACNVGGGTWTCTAAT-3'; 22) for the variable region V4"
+
+  - id: extraction-kit
+    target: {libraries: all}
+    field: extraction_kit
+    value_text: "DNeasy PowerLyzer PowerSoil Kit (Qiagen)"
+    section: DNA Extraction and 16S rRNA Gene Illumina MiSeq Sequencing
+    quote: "using a DNeasy PowerLyzer PowerSoil Kit (Qiagen, Germantown, MD)"
+
+  - id: pcr-cycles
+    target: {libraries: all}
+    field: pcr_cycles
+    value_num: 35
+    section: DNA Extraction and 16S rRNA Gene Illumina MiSeq Sequencing
+    quote: "followed by 35 PCR cycles"
+
+  - id: sequencing
+    target: {libraries: all}
+    field: sequencing_run
+    value_text: "Illumina MiSeq, paired-end 2 x 250 bp, 10% PhiX"
+    section: DNA Extraction and 16S rRNA Gene Illumina MiSeq Sequencing
+    quote: "Illumina MiSeq paired-end sequencing with 250 bp read length and cluster generation with 10% PhiX control DNA"
+
+  # ── the paper's own analysis (facts about the paper, not our data) ────────
+  - id: paper-otu-method
+    target: {document: true}
+    field: otu_method
+    value_text: "mothur v1.40.4; reads 250-255 bp; 99% OTUs"
+    section: Sequence Analyses and Prediction of Functional Potential
+    quote: "Remaining sequences were then clustered into operational taxonomic units (OTUs) with a 99% sequence similarity"
+
+  - id: paper-taxonomy-reference
+    target: {document: true}
+    field: taxonomy_reference
+    value_text: "SILVA SSU 132"
+    section: Sequence Analyses and Prediction of Functional Potential
+    quote: "Consensus taxonomy for OTUs was assigned using version 132 of the SILVA SSU database"
+    note: "Not PGMD's Greengenes 13_8: the paper's taxon names need the crosswalk before comparison."
+
+  - id: paper-functional-prediction
+    target: {document: true}
+    field: functional_prediction
+    value_text: "PICRUSt2 2.3.0b, default parameters"
+    section: Sequence Analyses and Prediction of Functional Potential
+    quote: "the 2.3.0b version of Phylogenetic Investigation of Communities by Reconstruction of Unobserved States 2 (PICRUSt2)"
+
+  # ── errors found in the paper (benchmark items; warnings on its findings) ──
+  - id: error-otu-count-lachnospiraceae
+    target: {document: true}
+    field: paper_error
+    value_text: "count mismatch: 'five OTUs' but six listed (Lachnospiraceae, colonic contents, HF+XY vs HF)"
+    section: Treatment Modulation of the 200 Most Abundant OTUs in the Colonic Contents
+    quote: "five OTUs from the Lachnospiraceae family (OTUs #24, 30, 41, 59, 84, and 133)"
+
+  - id: error-otu-count-ruminococcaceae
+    target: {document: true}
+    field: paper_error
+    value_text: "count mismatch: 'five OTUs' but six listed (Ruminococcaceae, colonic mucosa, HF+XY vs HF)"
+    section: Treatment Modulation of the 200 Most Abundant OTUs in the Colonic Mucosa
+    quote: "five OTUs from the Ruminococcaceae family (OTUs #14, 30, 42, 122, 134, and 139)"
+
+  - id: error-read-total
+    target: {document: true}
+    field: paper_error
+    value_text: "total 9,280,410 reads vs 9,280,409 = sum of the four per-site totals (2,707,536 + 2,551,171 + 1,848,354 + 2,173,348)"
+    section: Intestinal Microbiota Population Characteristics
+    quote: "A total of 9,280,410 sequences were obtained from all samples"
+
+  - id: error-identical-median
+    target: {document: true}
+    field: paper_error
+    value_text: "cecal contents and cecal mucosa report the identical median (41,672 sequences): likely a copy error"
+    section: Cecum
+    quote: "A total of 2,551,171 high-quality reads from cecal mucosa samples were clustered into 4,657 OTUs and 234 genera, with a median of 41,672 sequences among samples."
+
+  - id: ambiguity-hfax-cecum-site
+    target: {document: true}
+    field: paper_ambiguity
+    value_text: "HF+AX vs HF in the cecum: Streptococcus up / Campylobacter down; the site is not named (contents said not to differ, so mucosa by elimination)"
+    section: Treatment Modulation of Microbial Genera in the Cecum
+    quote: "The 20 most abundant genera did not differ between HF and HF+AX in the cecal contents (Q > 0.10), but HF+AX did increase the abundance of Streptococcus and decreased the prevalence of Campylobacter (Q < 0.05)."
