@@ -1,0 +1,9 @@
+Runs,Bio_Project,Bio_Sample,Experimental_Design,Group,Sub_Group,Country,Category,Breed,Growth_Stage,Isolation_Location,Age,Weight,Sex,Library_Layout,Platform,Release_Date
+SRR12779153,PRJNA667518,SAMN16377505,Xylanase,HF,NA,USA,Sow,NA,Gilts,Colon,NA,weight(initial):25.4 ± 0.9 kg,female,PAIRED,Illumina MiSeq,2020-10-26T00:00:00Z
+SRR12779154,PRJNA667518,SAMN16377504,Xylanase,HF+AX,NA,USA,Sow,NA,Gilts,Colon,NA,weight(initial):25.4 ± 0.9 kg,female,PAIRED,Illumina MiSeq,2020-10-26T00:00:00Z
+SRR12779219,PRJNA667518,SAMN16377445,Xylanase,HF,NA,USA,Sow,NA,Gilts,Cecum,NA,weight(initial):25.4 ± 0.9 kg,female,PAIRED,Illumina MiSeq,2020-10-26T00:00:00Z
+SRR12779220,PRJNA667518,SAMN16377444,Xylanase,HF+AX,NA,USA,Sow,NA,Gilts,Cecum,NA,weight(initial):25.4 ± 0.9 kg,female,PAIRED,Illumina MiSeq,2020-10-26T00:00:00Z
+SRR12779244,PRJNA667518,SAMN16377325,Xylanase,HF,NA,USA,Sow,NA,Gilts,Cecum,NA,weight(initial):25.4 ± 0.9 kg,female,PAIRED,Illumina MiSeq,2020-10-26T00:00:00Z
+SRR12779245,PRJNA667518,SAMN16377324,Xylanase,HF+AX,NA,USA,Sow,NA,Gilts,Cecum,NA,weight(initial):25.4 ± 0.9 kg,female,PAIRED,Illumina MiSeq,2020-10-26T00:00:00Z
+SRR12779287,PRJNA667518,SAMN16377385,Xylanase,HF,NA,USA,Sow,NA,Gilts,Colon,NA,weight(initial):25.4 ± 0.9 kg,female,PAIRED,Illumina MiSeq,2020-10-26T00:00:00Z
+SRR12779288,PRJNA667518,SAMN16377384,Xylanase,HF+AX,NA,USA,Sow,NA,Gilts,Colon,NA,weight(initial):25.4 ± 0.9 kg,female,PAIRED,Illumina MiSeq,2020-10-26T00:00:00Z
