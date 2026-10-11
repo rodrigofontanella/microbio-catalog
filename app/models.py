@@ -1,5 +1,5 @@
 # app/models.py
-from sqlalchemy import Text, ForeignKey, ForeignKeyConstraint, Identity, CheckConstraint, text, UniqueConstraint, Index
+from sqlalchemy import Text, ForeignKey, ForeignKeyConstraint, Identity, CheckConstraint, text, UniqueConstraint, Index, Boolean, false
 from sqlalchemy.dialects.postgresql import JSONB, ENUM
 from sqlalchemy import String, Integer, BigInteger, Numeric, Date, DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -95,6 +95,7 @@ class Subject(Base):
     __tablename__ = "subject"
     __table_args__ = (
         UniqueConstraint("study_id", "local_id", name="subject_study_local_id_key"),
+        UniqueConstraint("subject_id", "study_id", name="subject_id_study_key"),
         {"schema": "core"},
     )
 
@@ -116,6 +117,8 @@ class Sample(Base):
         UniqueConstraint("sra_sample_acc", name="sample_sra_sample_acc_key"),
         UniqueConstraint("local_id", name="sample_local_id_key"),
         CheckConstraint("num_nonnulls(biosample_acc, sra_sample_acc, local_id) >= 1", name="sample_has_key"),
+        CheckConstraint("sample_type IN ('biological', 'negative_control', 'extraction_blank', 'mock_community')",
+                        name="sample_type_check"),
         Index("sample_subject_id_idx", "subject_id"),
         {"schema": "core"},
     )
@@ -125,6 +128,7 @@ class Sample(Base):
     sra_sample_acc: Mapped[Optional[str]] = mapped_column(Text)
     local_id: Mapped[Optional[str]] = mapped_column(Text)
     subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("core.subject.subject_id"))
+    sample_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="biological")
     ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
@@ -197,8 +201,8 @@ class Run(Base):
 class Assertion(Base):
     __tablename__ = "assertion"
     __table_args__ = (
-        CheckConstraint("num_nonnulls(study_id, subject_id, sample_id, library_id, run_acc, genome_acc) = 1",
-                        name="assertion_one_entity"),
+        CheckConstraint("num_nonnulls(study_id, subject_id, sample_id, library_id, run_acc, genome_acc, "
+                        "experiment_id) = 1", name="assertion_one_entity"),
         CheckConstraint("num_nonnulls(value_text, value_term, value_num) >= 1", name="assertion_has_value"),
         Index("assertion_study_field_idx", "study_id", "field"),
         Index("assertion_subject_field_idx", "subject_id", "field"),
@@ -206,6 +210,7 @@ class Assertion(Base):
         Index("assertion_library_field_idx", "library_id", "field"),
         Index("assertion_run_field_idx", "run_acc", "field"),
         Index("assertion_genome_field_idx", "genome_acc", "field"),
+        Index("assertion_experiment_field_idx", "experiment_id", "field"),
         {"schema": "prov"},
     )
 
@@ -216,6 +221,8 @@ class Assertion(Base):
     library_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("core.library.library_id"))
     run_acc: Mapped[Optional[str]] = mapped_column(Text, ForeignKey("core.run.run_acc"))
     genome_acc: Mapped[Optional[str]] = mapped_column(String, ForeignKey("ref.genome.accession"))
+    experiment_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("core.experiment.experiment_id", name="assertion_experiment_id_fkey"))
     field: Mapped[str] = mapped_column(Text, nullable=False)
     value_text: Mapped[Optional[str]] = mapped_column(Text)
     value_term: Mapped[Optional[str]] = mapped_column(Text)
@@ -224,5 +231,120 @@ class Assertion(Base):
     tier: Mapped[str] = mapped_column(EVIDENCE_TIER, nullable=False)
     method: Mapped[str] = mapped_column(Text, nullable=False)
     evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+# ── experiment layer (migration db644d6f60c7, design doc §5.6) ────────────────
+
+DESIGN_TYPES = ("completely_randomized", "randomized_block", "factorial", "crossover",
+                "repeated_measures", "observational")
+EXPERIMENTAL_UNITS = ("animal", "pen", "litter", "room", "farm")
+FACTOR_KINDS = ("treatment", "blocking", "time", "nuisance")
+
+
+def _in(col: str, values: tuple[str, ...]) -> str:
+    return f"{col} IN ({', '.join(repr(v) for v in values)})"
+
+
+class Experiment(Base):
+    """One designed comparison within a study; the experimental unit is what was randomised."""
+    __tablename__ = "experiment"
+    __table_args__ = (
+        UniqueConstraint("study_id", "local_id", name="experiment_study_local_id_key"),
+        UniqueConstraint("experiment_id", "study_id", name="experiment_id_study_key"),
+        CheckConstraint(_in("design_type", DESIGN_TYPES), name="experiment_design_type_check"),
+        CheckConstraint(_in("experimental_unit", EXPERIMENTAL_UNITS), name="experiment_unit_check"),
+        {"schema": "core"},
+    )
+
+    experiment_id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    study_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("core.study.study_id"), nullable=False)
+    local_id: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[Optional[str]] = mapped_column(Text)
+    design_type: Mapped[str] = mapped_column(Text, nullable=False)
+    experimental_unit: Mapped[str] = mapped_column(Text, nullable=False)
+    ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class Factor(Base):
+    """diet, rep, block … `nested_in_factor_id`: block is nested in rep."""
+    __tablename__ = "factor"
+    __table_args__ = (
+        ForeignKeyConstraint(["experiment_id", "study_id"], ["core.experiment.experiment_id",
+                                                             "core.experiment.study_id"],
+                             name="factor_experiment_fk"),
+        UniqueConstraint("experiment_id", "name", name="factor_experiment_name_key"),
+        UniqueConstraint("factor_id", "study_id", name="factor_id_study_key"),
+        UniqueConstraint("factor_id", "experiment_id", name="factor_id_experiment_key"),
+        UniqueConstraint("factor_id", "nested_in_factor_id", name="factor_id_nested_key"),
+        ForeignKeyConstraint(["nested_in_factor_id", "experiment_id"], ["core.factor.factor_id",
+                                                                      "core.factor.experiment_id"],
+                             name="factor_nested_in_fk"),
+        CheckConstraint("nested_in_factor_id IS DISTINCT FROM factor_id", name="factor_not_nested_in_itself"),
+        CheckConstraint(_in("kind", FACTOR_KINDS), name="factor_kind_check"),
+        {"schema": "core"},
+    )
+
+    factor_id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    experiment_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    study_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    nested_in_factor_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    definition: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class FactorLevel(Base):
+    """A level of a factor. A nested level points at its parent level: block 2 of rep 1 ≠ block 2 of rep 3."""
+    __tablename__ = "factor_level"
+    __table_args__ = (
+        UniqueConstraint("level_id", "factor_id", name="factor_level_id_factor_key"),
+        ForeignKeyConstraint(["factor_id", "parent_factor_id"], ["core.factor.factor_id",
+                                                                 "core.factor.nested_in_factor_id"],
+                             name="factor_level_nesting_fk"),
+        ForeignKeyConstraint(["parent_level_id", "parent_factor_id"], ["core.factor_level.level_id",
+                                                                       "core.factor_level.factor_id"],
+                             name="factor_level_parent_fk"),
+        CheckConstraint("(parent_level_id IS NULL) = (parent_factor_id IS NULL)", name="factor_level_parent_pair"),
+        Index("factor_level_top_label_key", "factor_id", "label", unique=True,
+              postgresql_where=text("parent_level_id IS NULL")),
+        Index("factor_level_nested_label_key", "factor_id", "parent_level_id", "label", unique=True,
+              postgresql_where=text("parent_level_id IS NOT NULL")),
+        {"schema": "core"},
+    )
+
+    level_id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    factor_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    is_control: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    parent_factor_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    parent_level_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class SubjectFactorLevel(Base):
+    """Which level each animal received; the primary key allows one level per factor per animal."""
+    __tablename__ = "subject_factor_level"
+    __table_args__ = (
+        ForeignKeyConstraint(["level_id", "factor_id"], ["core.factor_level.level_id",
+                                                         "core.factor_level.factor_id"], name="sfl_level_fk"),
+        ForeignKeyConstraint(["subject_id", "study_id"], ["core.subject.subject_id", "core.subject.study_id"],
+                             name="sfl_subject_fk"),
+        ForeignKeyConstraint(["factor_id", "study_id"], ["core.factor.factor_id", "core.factor.study_id"],
+                             name="sfl_factor_fk"),
+        Index("sfl_level_id_idx", "level_id"),
+        {"schema": "core"},
+    )
+
+    subject_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    factor_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    level_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    study_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

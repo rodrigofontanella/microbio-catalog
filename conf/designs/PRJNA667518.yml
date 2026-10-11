@@ -1,0 +1,41 @@
+# Experimental design of PRJNA667518, written and reviewed by hand. Loaded rows are tier 'curated'.
+#
+#   python -m app.ingest.design conf/designs/PRJNA667518.yml --dry-run
+#
+# Sources for the structure (2026-10-11):
+#   - BioSample attributes Treatment, Rep, Block, Pen (240 samples, all consistent per pen)
+#   - BioProject description: "Sixty gilts were blocked by initial body weight, individually-housed,
+#     and randomly assigned to 1 of 4 dietary treatments (n=15): a low-fiber control (LF), a
+#     high-fiber control containing 30% corn bran without solubles (HF), HF+100 mg/kg xylanase
+#     (HF+XY), and HF+50 mg/kg arabinoxylan oligosaccharide (HF+AX)."
+#   Still to confirm in the paper's Methods (Step 5, PMC8024495): one pig per pen; block = BW block within rep.
+
+bioproject: PRJNA667518
+subject_attr: pen            # subjects already exist from the NCBI ingest as 'pen-<value>'
+
+experiment:
+  local_id: main
+  title: Xylanase and arabinoxylan-oligosaccharide in growing gilts fed corn-based fibre
+  design_type: randomized_block
+  experimental_unit: pen     # individually housed, so pen = animal
+
+factors:
+  - name: diet
+    kind: treatment
+    source: {biosample_attr: treatment}
+    levels:
+      LF:    {control: true,  description: "low-fibre control"}
+      HF:    {control: true,  description: "high-fibre control: 30% corn bran without solubles"}
+      HF+XY: {control: false, description: "HF + 100 mg/kg xylanase"}
+      HF+AX: {control: false, description: "HF + 50 mg/kg arabinoxylan oligosaccharide"}
+
+  - name: rep
+    kind: blocking
+    description: "cohort; each rep was slaughtered on its own date (2017-12-11, 2018-01-22, 2018-02-02)"
+    source: {biosample_attr: rep}
+
+  - name: block
+    kind: blocking
+    description: "initial body-weight block within a rep"
+    source: {biosample_attr: block}
+    nested_in: rep           # block 2 of rep 1 is not block 2 of rep 3
