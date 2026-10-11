@@ -37,8 +37,8 @@ pmcid: PMC8024495
 experiment: main
 taxonomy: SILVA 132 (mothur v1.40.4, 99 % OTUs)
 review:
-  reviewed_by: null
-  reviewed_on: null
+  reviewed_by: Rodrigo Fontanella
+  reviewed_on: 2026-10-11
 
 feature_sets:
   - id: top20-genera-cae-dig
