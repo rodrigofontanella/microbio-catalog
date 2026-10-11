@@ -35,9 +35,9 @@ def test_real_spec_passes_the_guard(jats):
     assert check_evidence(load_spec(SPEC), jats) == []
 
 
-def test_real_spec_is_unsigned_until_reviewed():
-    # flips to signed once Rodrigo reviews it: then this test changes with the review commit
-    assert load_spec(SPEC).review.reviewed_by is None
+def test_real_spec_is_signed():
+    # signed after review; a curated load refuses an unsigned spec
+    assert load_spec(SPEC).review.reviewed_by == "Rodrigo Fontanella"
 
 
 def _with_fact(raw: dict, fact_id: str, **changes) -> CurationSpec:

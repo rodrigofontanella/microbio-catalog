@@ -11,8 +11,8 @@ bioproject: PRJNA667518
 pmcid: PMC8024495
 method: paper_methods:PMC8024495
 review:
-  reviewed_by: null        # your name, once you've reviewed every fact
-  reviewed_on: null        # YYYY-MM-DD
+  reviewed_by: Rodrigo Fontanella
+  reviewed_on: 2026-10-11
 
 facts:
   # ── the animal = the experimental unit ─────────────────────────────────────
