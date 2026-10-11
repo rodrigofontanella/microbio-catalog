@@ -5,7 +5,8 @@
 Writes $RAW_DIR/europepmc/<UTC timestamp>/<PMCID>/:
   core.json          search result, resultType=core (identifiers, licence, OA flags, abstract)
   fulltext.xml       JATS full text (only fetched when Europe PMC says it is open access)
-  supplementary.zip  supplementary files, when Europe PMC has any
+  supplementary.zip  only with --supplementary: Europe PMC zips ALL supplementary material,
+                     figures included, so it can be very large
   SHA256SUMS         checkable with `sha256sum -c`
 and prints the identifiers, the licence and an outline (sections, tables, figures) of the paper.
 No database writes: loading the paper is a separate step.
@@ -36,7 +37,9 @@ class EuropePMC:
     def __init__(self, base_url: str = BASE, client: httpx.AsyncClient | None = None,
                  max_attempts: int = 5, backoff_s: float = 1.0, min_interval: float = 0.2) -> None:
         self.base_url = base_url.rstrip("/")
-        self._client = client or httpx.AsyncClient(timeout=120.0, follow_redirects=True)
+        # fail fast on a dead connection; allow a slow but live transfer
+        self._client = client or httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=15.0, read=60.0, write=30.0, pool=15.0), follow_redirects=True)
         self._owns = client is None
         self.max_attempts, self.backoff_s, self.min_interval = max_attempts, backoff_s, min_interval
         self.calls = 0
@@ -53,6 +56,8 @@ class EuropePMC:
         for attempt in range(self.max_attempts):
             await asyncio.sleep(self.min_interval)
             self.calls += 1
+            if attempt:
+                print(f"  retry {attempt}/{self.max_attempts - 1} for {path}: {last}", file=sys.stderr, flush=True)
             try:
                 r = await self._client.get(f"{self.base_url}/{path}", params=params)
             except httpx.TransportError as e:
@@ -152,6 +157,8 @@ def write_raw(root: Path, pmcid: str, files: dict[str, bytes], at: datetime) -> 
 async def run(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m app.ingest.europepmc", description=__doc__.splitlines()[0])
     ap.add_argument("pmcid", help="e.g. PMC8024495")
+    ap.add_argument("--supplementary", action="store_true",
+                    help="also download the supplementary zip (can be large and slow)")
     args = ap.parse_args(argv)
     pmcid = args.pmcid.strip().upper()
     if not re.fullmatch(r"PMC\d+", pmcid):
@@ -161,17 +168,29 @@ async def run(argv: list[str] | None = None) -> int:
         print("RAW_DIR is not set (env or .env)", file=sys.stderr)
         return 2
 
+    def step(msg: str) -> None:
+        print(msg, file=sys.stderr, flush=True)
+
     async with EuropePMC() as epmc:
+        step(f"{pmcid}: metadata …")
         core = await epmc.core(pmcid)
         meta = parse_core(core, pmcid)
         files = {"core.json": core}
+        step(f"  {len(core):,} bytes; open access: {meta.is_open_access}, in EPMC: {meta.in_epmc}")
         if meta.is_open_access and meta.in_epmc:
+            step(f"{pmcid}: full text …")
             xml = await epmc.full_text(pmcid)
             if xml:
                 files["fulltext.xml"] = xml
-            supp = await epmc.supplementary(pmcid)
-            if supp:
-                files["supplementary.zip"] = supp
+                step(f"  {len(xml):,} bytes")
+            if args.supplementary:
+                step(f"{pmcid}: supplementary zip (may be large) …")
+                supp = await epmc.supplementary(pmcid)
+                if supp:
+                    files["supplementary.zip"] = supp
+                    step(f"  {len(supp):,} bytes")
+                else:
+                    step("  none")
         calls = epmc.calls
 
     d, manifest = write_raw(Path(settings.raw_dir).expanduser(), pmcid, files, datetime.now(timezone.utc))
