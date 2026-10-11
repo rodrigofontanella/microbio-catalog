@@ -1,7 +1,7 @@
 """Parser, validation, raw-file and E-utilities tests for the NCBI study ingest. No database.
 
-Fixtures are trimmed real NCBI responses for PRJNA667518 (pens 101 and 102: 8 BioSamples).
-The BioProject XML is a minimal hand-written stand-in until a real fetch replaces it.
+Fixtures are real NCBI responses for PRJNA667518, fetched 2026-10-10/11: the BioProject record, and
+BioSamples + run info trimmed to pens 101 and 102 (8 BioSamples).
 """
 from __future__ import annotations
 
@@ -21,10 +21,7 @@ from app.ncbi_client import NCBIUnavailableError
 
 FIX = Path(__file__).parent / "fixtures" / "ncbi" / "PRJNA667518"
 BASE = "https://eutils.test/entrez/eutils"
-BIOPROJECT_XML = b"""<RecordSet><DocumentSummary uid="667518"><Project><ProjectID>
-<ArchiveID accession="PRJNA667518" archive="NCBI" id="667518"/></ProjectID>
-<ProjectDescr><Title>Xylanase   stimbiotic\n trial</Title><Description>Pigs fed corn fibre.</Description>
-</ProjectDescr></Project></DocumentSummary></RecordSet>"""
+BIOPROJECT_XML = (FIX / "bioproject.xml").read_bytes()
 
 
 @pytest.fixture(scope="module")
@@ -44,9 +41,16 @@ def project():
 
 # ── parsing ─────────────────────────────────────────────────────────────────
 
-def test_bioproject_title_whitespace_collapsed(project):
+def test_bioproject(project):
     assert project.accession == "PRJNA667518"
-    assert project.title == "Xylanase stimbiotic trial"
+    assert project.title == "16S rRNA gene sequencing on swine hindgut microbiota after xylanase supplementation"
+    assert "individually-housed" in project.description     # evidence that one pen = one pig
+
+
+def test_bioproject_whitespace_collapsed():
+    xml = (b'<RecordSet><DocumentSummary><Project><ProjectID><ArchiveID accession="PRJNA1"/></ProjectID>'
+           b"<ProjectDescr><Title>a   b\n c</Title></ProjectDescr></Project></DocumentSummary></RecordSet>")
+    assert parse_bioproject(xml, "1").title == "a b c"
 
 
 def test_biosamples_ids_and_free_attributes(samples):

@@ -1,0 +1,45 @@
+<?xml version="1.0" ?>
+<RecordSet><DocumentSummary uid="667518">
+    <Project>
+        <ProjectID>
+            <ArchiveID accession="PRJNA667518" archive="NCBI" id="667518"/>
+            <LocalID>bp0</LocalID>
+            <LocalID>bp0</LocalID>
+        </ProjectID>
+        <ProjectDescr>
+            <Title>16S rRNA gene sequencing on swine hindgut microbiota after xylanase supplementation</Title>
+            <Description>This research tested the hypothesis that xylanase modulates microbial communities within the large intestine of growing pigs fed insoluble corn-based fiber through a stimbiotic mechanism of action. Sixty gilts were blocked by initial body weight, individually-housed, and randomly assigned to 1 of 4 dietary treatments (n=15): a low-fiber control (LF), a high-fiber control containing 30% corn bran without solubles (HF), HF+100 mg/kg xylanase (HF+XY), and HF+50 mg/kg arabinoxylan oligosaccharide (HF+AX). Pigs were fed their respective dietary treatments for 46-days. On day 46, pigs were euthanized, and mucosa and contents were collected from the apex of the cecum and the proximal colon. The V4 region of bacterial 16S rRNA gene was amplified and sequenced.</Description>
+            <Relevance>
+                <Agricultural>yes</Agricultural>
+            </Relevance>
+        </ProjectDescr>
+        <ProjectType>
+            <ProjectTypeSubmission>
+                <Target capture="eWhole" material="eGenome" sample_scope="eMultispecies"/>
+                <Method method_type="eSequencing"/>
+                <Objectives>
+                    <Data data_type="eRawSequenceReads"/>
+                </Objectives>
+                <IntendedDataTypeSet>
+                    <DataType>raw sequence reads</DataType>
+                </IntendedDataTypeSet>
+                <ProjectDataTypeSet>
+                    <DataType>raw sequence reads</DataType>
+                </ProjectDataTypeSet>
+            </ProjectTypeSubmission>
+        </ProjectType>
+    </Project>
+    <Submission last_update="2020-10-05" submission_id="SUB8273832" submitted="2020-10-05">
+        <Description>
+            <!-- Submitter information has been removed -->
+            <Organization role="owner" type="institute" url="https://www.iastate.edu/">
+                <Name>Iowa State University</Name>
+                <!-- Contact information has been removed -->
+            </Organization>
+            <Access>public</Access>
+        </Description>
+        <Action action_id="SUB8273832-bp0"/>
+    </Submission>
+</DocumentSummary>
+
+</RecordSet>
