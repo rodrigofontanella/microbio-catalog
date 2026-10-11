@@ -107,10 +107,37 @@ def test_findings_draft_passes(draft, jats, design):
     assert check_findings(draft, jats, design) == []
 
 
+def _claim(d: dict, claim_id: str) -> dict:
+    return next(c for c in d["claims"] if c["id"] == claim_id)
+
+
 def test_findings_draft_catches_bad_quote_level_and_effect(draft, jats, design):
     d = copy.deepcopy(draft)
-    d["claims"][0]["quote"] = "HF reduced Lactobacillus"
-    d["claims"][1]["contrast"]["treatment"] = "HF+XYZ"
-    d["claims"][2]["effect"] = {"log2fc": 1.2}
+    _claim(d, "g-cae-dig-hf-lf-lactobacillus")["quote"] = "HF reduced Lactobacillus"
+    _claim(d, "g-cae-muc-xy-hf-faecalibacterium")["contrast"]["treatment"] = "HF+XYZ"
+    _claim(d, "g-col-dig-xy-hf-lactobacillus")["effect"] = {"log2fc": 1.2}
     errors = check_findings(d, jats, design)
     assert len(errors) == 3, errors
+
+
+def test_counts_belong_to_a_feature_set(draft, jats, design):
+    d = copy.deepcopy(draft)
+    _claim(d, "otu-cae-dig-hf-lf-counts")["about"] = {"feature": {"kind": "otu", "label": "OTU_1", "rank": "otu"}}
+    assert any("counts are a claim about a feature set" in e for e in check_findings(d, jats, design))
+
+
+def test_a_legend_statistic_needs_its_own_verified_quote(draft, jats, design):
+    d = copy.deepcopy(draft)
+    _claim(d, "otu-cae-muc-ax-hf-otu160")["stat"]["quote"] = "Q < 0.01 for all OTUs"
+    assert any("stat quote (figure_legend) not found" in e for e in check_findings(d, jats, design))
+
+
+def test_a_grouping_is_not_a_pair(draft, jats, design):
+    d = copy.deepcopy(draft)
+    _claim(d, "a-col-dig-shannon-grouping")["contrast"]["treatment"] = "HF+XY"
+    assert any("a grouping contrast has exactly" in e for e in check_findings(d, jats, design))
+
+
+def test_streptococcus_material_stays_unknown_until_figure_3(draft):
+    # the Streptococcus claim keeps material null until Figure 3 is checked
+    assert _claim(draft, "g-cae-ax-hf-streptococcus")["material"] is None
