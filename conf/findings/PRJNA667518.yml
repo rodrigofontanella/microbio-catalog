@@ -1,7 +1,8 @@
-# DRAFT findings from PMC8024495 (Petry et al. 2021, Front. Microbiol., CC BY) for PRJNA667518. Revision 2.
-# Not loaded anywhere: this file designs the findings table (design doc §5.8, proposed). Review, then sign.
+# Findings from PMC8024495 (Petry et al. 2021, Front. Microbiol., CC BY) for PRJNA667518. Revision 2.
+# Loaded into core.finding (design doc §5.8) by app.ingest.findings, as tier 'curated' only once signed below.
 #
-#   python scripts/check_findings_quotes.py conf/findings/PRJNA667518_draft.yml /home/fontanella/lab/raw/europepmc/20261011T090319Z/PMC8024495
+#   python scripts/check_findings_quotes.py conf/findings/PRJNA667518.yml /home/fontanella/lab/raw/europepmc/20261011T090319Z/PMC8024495
+#   python -m app.ingest.findings conf/findings/PRJNA667518.yml --dry-run
 #
 # Rules agreed 2026-10-11 (Rodrigo):
 #   - store what the paper says, mark where it came from, never guess
@@ -21,7 +22,7 @@
 # Diversity p values are clear: "Least square means were separated using Fisher's Least Significant
 # Difference test" → pairwise (scope contrast); an overall "did not differ (p = 0.117)" is the treatment test.
 #
-# Shape (each key is a proposed column; design doc §5.8):
+# Shape (each key is a column of core.finding; design doc §5.8):
 #   about       exactly one of feature {kind, label, rank, otu_dataset?} | feature_set: <id below>
 #   contrast    {kind: pairwise, treatment, reference} | {kind: omnibus, levels} | {kind: grouping, higher, lower}
 #               every level must be a diet level of conf/designs/PRJNA667518.yml

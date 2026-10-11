@@ -408,3 +408,151 @@ class StudyPublication(Base):
     evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+# ── findings (migration 284f0d1b9c5d, design doc §5.8) ───────────────────────
+
+CONTRAST_KINDS = ("pairwise", "omnibus", "grouping")
+FEATURE_KINDS = ("genus", "otu", "enzyme", "alpha_index")
+MATERIALS = ("digesta", "mucosa", "swab")
+MEASURES = ("relative_abundance", "alpha_diversity", "predicted_gene_count")
+DIRECTIONS = ("increase", "decrease", "no_difference", "counts")
+STAT_KINDS = ("Q", "p")
+STAT_OPS = ("<", ">", "=", "<=", ">=")
+STAT_SCOPES = ("treatment", "contrast", "unknown")
+STAT_SOURCES = ("text", "figure_legend", "methods")
+LEVEL_ROLES = ("member", "higher", "lower")
+
+
+class FeatureSet(Base):
+    """A named set of features a finding can be about: '200 most abundant OTUs' in caecal digesta."""
+    __tablename__ = "feature_set"
+    __table_args__ = (
+        UniqueConstraint("study_id", "local_id", name="feature_set_study_local_id_key"),
+        UniqueConstraint("feature_set_id", "study_id", name="feature_set_id_study_key"),
+        CheckConstraint(_in("member_kind", FEATURE_KINDS), name="feature_set_member_kind_check"),
+        CheckConstraint(f"material IS NULL OR {_in('material', MATERIALS)}", name="feature_set_material_check"),
+        CheckConstraint("size IS NULL OR size > 0", name="feature_set_size_check"),
+        {"schema": "core"},
+    )
+
+    feature_set_id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    study_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("core.study.study_id"), nullable=False)
+    local_id: Mapped[str] = mapped_column(Text, nullable=False)
+    member_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    definition: Mapped[str] = mapped_column(Text, nullable=False)
+    size: Mapped[Optional[int]] = mapped_column(Integer)
+    site_term: Mapped[Optional[str]] = mapped_column(Text)
+    material: Mapped[Optional[str]] = mapped_column(Text)
+    otu_dataset: Mapped[Optional[str]] = mapped_column(Text)
+    ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class Finding(Base):
+    """What a paper claims about one feature or one feature set under one contrast, with its evidence."""
+    __tablename__ = "finding"
+    __table_args__ = (
+        UniqueConstraint("study_id", "local_id", name="finding_study_local_id_key"),
+        UniqueConstraint("finding_id", "factor_id", name="finding_id_factor_key"),
+        ForeignKeyConstraint(["experiment_id", "study_id"], ["core.experiment.experiment_id",
+                                                             "core.experiment.study_id"],
+                             name="finding_experiment_fk"),
+        ForeignKeyConstraint(["factor_id", "experiment_id"], ["core.factor.factor_id", "core.factor.experiment_id"],
+                             name="finding_factor_fk"),
+        ForeignKeyConstraint(["treatment_level_id", "factor_id"], ["core.factor_level.level_id",
+                                                                   "core.factor_level.factor_id"],
+                             name="finding_treatment_level_fk"),
+        ForeignKeyConstraint(["reference_level_id", "factor_id"], ["core.factor_level.level_id",
+                                                                   "core.factor_level.factor_id"],
+                             name="finding_reference_level_fk"),
+        ForeignKeyConstraint(["feature_set_id", "study_id"], ["core.feature_set.feature_set_id",
+                                                              "core.feature_set.study_id"],
+                             name="finding_feature_set_fk"),
+        CheckConstraint(_in("contrast_kind", CONTRAST_KINDS), name="finding_contrast_kind_check"),
+        CheckConstraint("(contrast_kind = 'pairwise') = (treatment_level_id IS NOT NULL "
+                        "AND reference_level_id IS NOT NULL)", name="finding_pairwise_levels"),
+        CheckConstraint("contrast_kind = 'pairwise' OR (treatment_level_id IS NULL "
+                        "AND reference_level_id IS NULL)", name="finding_levels_only_pairwise"),
+        CheckConstraint("treatment_level_id <> reference_level_id",
+                        name="finding_treatment_not_reference"),
+        CheckConstraint(f"material IS NULL OR {_in('material', MATERIALS)}", name="finding_material_check"),
+        CheckConstraint(_in("measure", MEASURES), name="finding_measure_check"),
+        CheckConstraint("(feature_label IS NULL) <> (feature_set_id IS NULL)", name="finding_about_one"),
+        CheckConstraint("(feature_kind IS NULL) = (feature_label IS NULL)", name="finding_feature_kind_pair"),
+        CheckConstraint(f"feature_kind IS NULL OR {_in('feature_kind', FEATURE_KINDS)}",
+                        name="finding_feature_kind_check"),
+        CheckConstraint(_in("direction", DIRECTIONS), name="finding_direction_check"),
+        CheckConstraint("(direction = 'counts') = (n_increase IS NOT NULL OR n_decrease IS NOT NULL)",
+                        name="finding_counts_pair"),
+        CheckConstraint("direction <> 'counts' OR feature_set_id IS NOT NULL", name="finding_counts_on_set"),
+        CheckConstraint("num_nonnulls(stat_kind, stat_op, stat_value, stat_scope, stat_source) IN (0, 5)",
+                        name="finding_stat_complete"),
+        CheckConstraint(f"stat_kind IS NULL OR {_in('stat_kind', STAT_KINDS)}", name="finding_stat_kind_check"),
+        CheckConstraint(f"stat_op IS NULL OR {_in('stat_op', STAT_OPS)}", name="finding_stat_op_check"),
+        CheckConstraint(f"stat_scope IS NULL OR {_in('stat_scope', STAT_SCOPES)}", name="finding_stat_scope_check"),
+        CheckConstraint(f"stat_source IS NULL OR {_in('stat_source', STAT_SOURCES)}",
+                        name="finding_stat_source_check"),
+        CheckConstraint("(effect_value IS NULL) = (effect_kind IS NULL)", name="finding_effect_pair"),
+        Index("finding_contrast_idx", "treatment_level_id", "reference_level_id"),
+        Index("finding_feature_label_idx", "feature_label"),
+        Index("finding_feature_set_idx", "feature_set_id"),
+        Index("finding_doc_idx", "doc_id"),
+        {"schema": "core"},
+    )
+
+    finding_id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    study_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    experiment_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    doc_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("rag.document.doc_id"), nullable=False)
+    local_id: Mapped[str] = mapped_column(Text, nullable=False)
+    contrast_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    factor_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    treatment_level_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    reference_level_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    site_term: Mapped[str] = mapped_column(Text, nullable=False)
+    material: Mapped[Optional[str]] = mapped_column(Text)
+    measure: Mapped[str] = mapped_column(Text, nullable=False)
+    feature_kind: Mapped[Optional[str]] = mapped_column(Text)
+    feature_label: Mapped[Optional[str]] = mapped_column(Text)
+    feature_rank: Mapped[Optional[str]] = mapped_column(Text)
+    otu_dataset: Mapped[Optional[str]] = mapped_column(Text)
+    taxonomy: Mapped[Optional[str]] = mapped_column(Text)
+    feature_set_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    direction: Mapped[str] = mapped_column(Text, nullable=False)
+    n_increase: Mapped[Optional[int]] = mapped_column(Integer)
+    n_decrease: Mapped[Optional[int]] = mapped_column(Integer)
+    stat_kind: Mapped[Optional[str]] = mapped_column(Text)
+    stat_op: Mapped[Optional[str]] = mapped_column(Text)
+    stat_value: Mapped[Optional[float]] = mapped_column(Numeric)
+    stat_scope: Mapped[Optional[str]] = mapped_column(Text)
+    stat_source: Mapped[Optional[str]] = mapped_column(Text)
+    effect_kind: Mapped[Optional[str]] = mapped_column(Text)
+    effect_value: Mapped[Optional[float]] = mapped_column(Numeric)
+    effect_se: Mapped[Optional[float]] = mapped_column(Numeric)
+    figure: Mapped[Optional[str]] = mapped_column(Text)
+    tier: Mapped[str] = mapped_column(EVIDENCE_TIER, nullable=False)
+    method: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class FindingLevel(Base):
+    """The levels of an omnibus test (member) or a grouping (higher / lower); pairwise uses Finding's columns."""
+    __tablename__ = "finding_level"
+    __table_args__ = (
+        ForeignKeyConstraint(["finding_id", "factor_id"], ["core.finding.finding_id", "core.finding.factor_id"],
+                             name="finding_level_finding_fk"),
+        ForeignKeyConstraint(["level_id", "factor_id"], ["core.factor_level.level_id", "core.factor_level.factor_id"],
+                             name="finding_level_level_fk"),
+        CheckConstraint(_in("role", LEVEL_ROLES), name="finding_level_role_check"),
+        Index("finding_level_level_idx", "level_id"),
+        {"schema": "core"},
+    )
+
+    finding_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    level_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    factor_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False)
+    ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)

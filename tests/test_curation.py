@@ -16,7 +16,7 @@ from scripts.check_findings_quotes import check as check_findings
 
 ROOT = Path(__file__).parents[1]
 SPEC = ROOT / "conf" / "curation" / "PRJNA667518.yml"
-DRAFT = ROOT / "conf" / "findings" / "PRJNA667518_draft.yml"
+DRAFT = ROOT / "conf" / "findings" / "PRJNA667518.yml"
 DESIGN = ROOT / "conf" / "designs" / "PRJNA667518.yml"
 PAPER = Path(__file__).parent / "fixtures" / "europepmc" / "PMC8024495" / "fulltext.xml"
 
