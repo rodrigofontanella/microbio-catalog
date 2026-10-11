@@ -51,7 +51,7 @@ facts:
   - id: arrive-2-sample-size-justification
     target: {experiment: main}
     field: "arrive:sample_size_justification"
-    value_text: "not reported"
+    value_text: "not reported in PMC8024495; animal methods deferred to Petry et al. 2020a"
     absent:
       sections: ["Animals, Diets, and Experimental Design", "Statistical Analysis"]
       patterns: ['power', 'sample size']
@@ -60,7 +60,7 @@ facts:
   - id: arrive-3-inclusion-exclusion
     target: {experiment: main}
     field: "arrive:inclusion_exclusion"
-    value_text: "not reported"
+    value_text: "not reported in PMC8024495; animal methods deferred to Petry et al. 2020a"
     absent:
       sections: ["Animals, Diets, and Experimental Design", "Sample Collection", "Statistical Analysis"]
       patterns: ['\bexclu(ded|sion|de)\b', '\binclusion\b', 'removed from (the )?(study|experiment|trial|analys)']
@@ -75,7 +75,7 @@ facts:
   - id: arrive-5-blinding
     target: {experiment: main}
     field: "arrive:blinding"
-    value_text: "not reported"
+    value_text: "not reported in PMC8024495; animal methods deferred to Petry et al. 2020a"
     absent:
       sections: ["Animals, Diets, and Experimental Design", "Sample Collection", "DNA Extraction and 16S rRNA Gene Illumina MiSeq Sequencing", "Statistical Analysis"]
       patterns: ['blind', 'mask']
@@ -137,7 +137,7 @@ facts:
   - id: arrive-8-animals-age
     target: {experiment: main}
     field: "arrive:animals_age"
-    value_text: "not reported"
+    value_text: "not reported in PMC8024495; animal methods deferred to Petry et al. 2020a"
     absent:
       sections: ["Animals, Diets, and Experimental Design"]
       patterns: ['\bage\b', 'days? old', 'weeks? old']
@@ -170,7 +170,8 @@ facts:
     value_text: "not reported"
     absent:
       sections: ["Sample Collection", "DNA Extraction and 16S rRNA Gene Illumina MiSeq Sequencing", "Sequence Analyses and Prediction of Functional Potential"]
-      patterns: ['blank', 'negative control', 'mock']
+      patterns: ['blank', 'negative control', 'mock', '\bNTC\b', 'no.template', '\bwater\b', 'reagent',
+                 'contamina', 'positive control']
     note: "No extraction blanks or mock community mentioned; matters for the mucosa samples."
 
   # ── sampling: what each BioSample type is ─────────────────────────────────
