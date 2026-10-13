@@ -1,4 +1,5 @@
 # app/config.py
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -13,6 +14,20 @@ class Settings(BaseSettings):
     ncbi_tool: str = "ncbi-api"
     # Where raw NCBI responses are written (one timestamped folder per fetch). Required by ingests.
     raw_dir: str = ""
+
+    # Object store (Silo on Skipper, S3 API) and Spark (local mode on Leeloo). Secrets come from .env only.
+    s3_endpoint: str = ""                  # e.g. http://192.168.2.10:9000
+    s3_access_key: SecretStr = SecretStr("")
+    s3_secret_key: SecretStr = SecretStr("")
+    s3_region: str = "us-east-1"
+    lake_uri: str = "s3a://lake"           # Delta tables
+    cold_uri: str = "s3a://cold"           # raw downloads
+    spark_master: str = "local[2]"
+    spark_driver_memory: str = "2g"
+    spark_shuffle_partitions: int = 4
+    spark_local_dir: str = ""              # shuffle scratch on NVMe, e.g. /data/spark/local
+    # must match: delta-spark (pip) ↔ delta-spark_2.13 jar; hadoop-aws ↔ the Hadoop bundled in pyspark
+    spark_packages: str = "io.delta:delta-spark_2.13:4.4.0,org.apache.hadoop:hadoop-aws:3.5.0"
 
     model_config = SettingsConfigDict(env_file=".env")
 
