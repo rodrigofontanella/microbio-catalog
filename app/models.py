@@ -183,6 +183,7 @@ class Run(Base):
         Index("run_sample_id_idx", "sample_id"),
         Index("run_study_id_idx", "study_id"),
         Index("run_library_id_idx", "library_id"),
+        UniqueConstraint("run_acc", "study_id", name="run_acc_study_key"),   # target of profile_run's FK
         {"schema": "core"},
     )
 
@@ -202,7 +203,7 @@ class Assertion(Base):
     __tablename__ = "assertion"
     __table_args__ = (
         CheckConstraint("num_nonnulls(study_id, subject_id, sample_id, library_id, run_acc, genome_acc, "
-                        "experiment_id, doc_id) = 1", name="assertion_one_entity"),
+                        "experiment_id, doc_id, profile_id) = 1", name="assertion_one_entity"),
         CheckConstraint("num_nonnulls(value_text, value_term, value_num) >= 1", name="assertion_has_value"),
         Index("assertion_study_field_idx", "study_id", "field"),
         Index("assertion_subject_field_idx", "subject_id", "field"),
@@ -212,6 +213,7 @@ class Assertion(Base):
         Index("assertion_genome_field_idx", "genome_acc", "field"),
         Index("assertion_experiment_field_idx", "experiment_id", "field"),
         Index("assertion_doc_field_idx", "doc_id", "field"),
+        Index("assertion_profile_field_idx", "profile_id", "field"),
         {"schema": "prov"},
     )
 
@@ -226,6 +228,8 @@ class Assertion(Base):
         BigInteger, ForeignKey("core.experiment.experiment_id", name="assertion_experiment_id_fkey"))
     doc_id: Mapped[Optional[int]] = mapped_column(
         BigInteger, ForeignKey("rag.document.doc_id", name="assertion_doc_id_fkey"))
+    profile_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("core.profile.profile_id", name="assertion_profile_id_fkey"))
     field: Mapped[str] = mapped_column(Text, nullable=False)
     value_text: Mapped[Optional[str]] = mapped_column(Text)
     value_term: Mapped[Optional[str]] = mapped_column(Text)
@@ -556,3 +560,72 @@ class FindingLevel(Base):
     factor_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     role: Mapped[str] = mapped_column(Text, nullable=False)
     ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+
+
+# ── profiles: pointers into Delta (migration 10b35d7ad632, design doc §5.9) ────────────────────
+
+PROFILE_SOURCES = ("microbeatlas", "micoda", "pgmd", "nutreco_boxmeer", "own")
+PROFILE_FEATURE_TYPES = ("asv", "mapseq_otu", "otu_closed", "otu_open", "otu_denovo", "read_classification",
+                         "taxon_collapsed")
+TAXON_RANKS = ("phylum", "class", "order", "family", "genus", "species")
+ABUNDANCE_KINDS = ("counts", "relative", "presence")
+
+
+class Profile(Base):
+    """One processed abundance profile of one study, at one grain, pointing at a Delta table + version."""
+    __tablename__ = "profile"
+    __table_args__ = (
+        UniqueConstraint("profile_key", name="profile_key_key"),
+        UniqueConstraint("source", "source_release", "study_id", "feature_type", "taxon_rank",
+                         name="profile_grain_key", postgresql_nulls_not_distinct=True),
+        UniqueConstraint("profile_id", "study_id", name="profile_id_study_key"),
+        CheckConstraint(_in("source", PROFILE_SOURCES), name="profile_source_check"),
+        CheckConstraint(_in("feature_type", PROFILE_FEATURE_TYPES), name="profile_feature_type_check"),
+        CheckConstraint(f"taxon_rank IS NULL OR {_in('taxon_rank', TAXON_RANKS)}", name="profile_taxon_rank_check"),
+        CheckConstraint("(feature_type = 'taxon_collapsed') = (taxon_rank IS NOT NULL)", name="profile_rank_pair"),
+        CheckConstraint(_in("abundance_kind", ABUNDANCE_KINDS), name="profile_abundance_kind_check"),
+        CheckConstraint("delta_uri LIKE 's3a://%'", name="profile_delta_uri_s3a"),
+        CheckConstraint("source_uri LIKE 's3a://%'", name="profile_source_uri_s3a"),
+        CheckConstraint("delta_version >= 0", name="profile_delta_version_check"),
+        CheckConstraint("source_sha256 ~ '^[0-9a-f]{64}$'", name="profile_source_sha256_format"),
+        Index("profile_study_idx", "study_id"),
+        {"schema": "core"},
+    )
+
+    profile_id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    profile_key: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    source_release: Mapped[str] = mapped_column(Text, nullable=False)
+    study_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("core.study.study_id"), nullable=False)
+    feature_type: Mapped[str] = mapped_column(Text, nullable=False)
+    taxon_rank: Mapped[Optional[str]] = mapped_column(Text)
+    abundance_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    delta_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    delta_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    source_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ProfileRun(Base):
+    """A run measured in a profile, with its depth. The run must belong to the profile's study."""
+    __tablename__ = "profile_run"
+    __table_args__ = (
+        ForeignKeyConstraint(["profile_id", "study_id"], ["core.profile.profile_id", "core.profile.study_id"],
+                             name="profile_run_profile_fk"),
+        ForeignKeyConstraint(["run_acc", "study_id"], ["core.run.run_acc", "core.run.study_id"],
+                             name="profile_run_run_fk"),
+        CheckConstraint("n_reads IS NULL OR n_reads > 0", name="profile_run_n_reads_check"),
+        CheckConstraint("n_features > 0", name="profile_run_n_features_check"),
+        Index("profile_run_run_idx", "run_acc"),
+        {"schema": "core"},
+    )
+
+    profile_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    run_acc: Mapped[str] = mapped_column(Text, primary_key=True)
+    study_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    n_reads: Mapped[Optional[int]] = mapped_column(BigInteger)
+    n_features: Mapped[int] = mapped_column(Integer, nullable=False)
+    ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

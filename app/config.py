@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     spark_local_dir: str = ""              # shuffle scratch on NVMe, e.g. /data/spark/local
     # must match: delta-spark (pip) ↔ delta-spark_2.13 jar; hadoop-aws ↔ the Hadoop bundled in pyspark
     spark_packages: str = "io.delta:delta-spark_2.13:4.4.0,org.apache.hadoop:hadoop-aws:3.5.0"
+    # PGMD v1 objects under COLD_URI (Microbial.csv + pgmd-v1.SHA256SUMS), uploaded by Infrastructure
+    pgmd_raw_prefix: str = "raw/pgmd/v1"
 
     model_config = SettingsConfigDict(env_file=".env")
 
