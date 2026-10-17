@@ -15,8 +15,8 @@ bioproject: PRJNA664026
 pmcid: PMC8001633
 method: paper_methods:PMC8001633
 review:
-  reviewed_by:
-  reviewed_on:
+  reviewed_by: Rodrigo Fontanella
+  reviewed_on: 2026-10-17
 
 facts:
   # ── who was sampled: corroborates the 24 parsed subjects without naming the key ─────────────
