@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     spark_jars_excludes: str = "org.apache.hadoop:hadoop-client-api,org.apache.hadoop:hadoop-client-runtime"
     # PGMD v1 objects under COLD_URI (Microbial.csv + pgmd-v1.SHA256SUMS), uploaded by Infrastructure
     pgmd_raw_prefix: str = "raw/pgmd/v1"
+    # depth flag on core.profile_run (design doc §2.1.1): fail < DEPTH_FAIL_BELOW <= low < DEPTH_LOW_BELOW <= ok.
+    # Recorded on every row; changing them re-flags only with pgmd_profile --reflag-depth.
+    depth_fail_below: int = 1000
+    depth_low_below: int = 5000
 
     model_config = SettingsConfigDict(env_file=".env")
 

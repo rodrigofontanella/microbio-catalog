@@ -1,5 +1,5 @@
 # app/models.py
-from sqlalchemy import Text, ForeignKey, ForeignKeyConstraint, Identity, CheckConstraint, text, UniqueConstraint, Index, Boolean, false
+from sqlalchemy import Text, ForeignKey, ForeignKeyConstraint, Identity, CheckConstraint, text, UniqueConstraint, Index, Boolean, false, Computed
 from sqlalchemy.dialects.postgresql import JSONB, ENUM
 from sqlalchemy import String, Integer, BigInteger, Numeric, Date, DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -608,6 +608,12 @@ class Profile(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+# same text as migration 2bae84543400: fail < depth_fail_below <= low < depth_low_below <= ok
+DEPTH_STATUS_SQL = ("CASE WHEN n_reads IS NULL OR depth_fail_below IS NULL OR depth_low_below IS NULL THEN NULL "
+                    "WHEN n_reads < depth_fail_below THEN 'fail' "
+                    "WHEN n_reads < depth_low_below THEN 'low' ELSE 'ok' END")
+
+
 class ProfileRun(Base):
     """A run measured in a profile, with its depth. The run must belong to the profile's study."""
     __tablename__ = "profile_run"
@@ -618,6 +624,10 @@ class ProfileRun(Base):
                              name="profile_run_run_fk"),
         CheckConstraint("n_reads IS NULL OR n_reads > 0", name="profile_run_n_reads_check"),
         CheckConstraint("n_features > 0", name="profile_run_n_features_check"),
+        CheckConstraint("(depth_fail_below IS NULL) = (depth_low_below IS NULL)", name="profile_run_depth_pair"),
+        CheckConstraint("depth_fail_below IS NULL OR (depth_fail_below > 0 AND depth_low_below >= depth_fail_below)",
+                        name="profile_run_depth_order"),
+        CheckConstraint("depth_fail_below IS NULL OR n_reads IS NOT NULL", name="profile_run_depth_needs_reads"),
         Index("profile_run_run_idx", "run_acc"),
         {"schema": "core"},
     )
@@ -627,5 +637,9 @@ class ProfileRun(Base):
     study_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     n_reads: Mapped[Optional[int]] = mapped_column(BigInteger)
     n_features: Mapped[int] = mapped_column(Integer, nullable=False)
+    # depth flag (migration 2bae84543400): thresholds recorded per row; status generated, never written
+    depth_fail_below: Mapped[Optional[int]] = mapped_column(Integer)
+    depth_low_below: Mapped[Optional[int]] = mapped_column(Integer)
+    depth_status: Mapped[Optional[str]] = mapped_column(Text, Computed(DEPTH_STATUS_SQL, persisted=True))
     ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

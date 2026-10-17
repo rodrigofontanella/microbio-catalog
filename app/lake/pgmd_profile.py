@@ -18,8 +18,13 @@ Order, and why:
 4. **The genus test**, before silver is written: Species counts summed to their 6-segment lineage must equal
    PGMD's own Genus rows, (run, genus) by (run, genus). Any difference stops the load.
 5. **Postgres after the Delta commit**, in one transaction: core.profile (delta_version = the
-   profile_abundance commit that holds this profile_key), core.profile_run (n_reads, n_features), and the
-   `inferred` reference assertions (Greengenes 13_8) on the profile. A stored profile that differs stops.
+   profile_abundance commit that holds this profile_key), core.profile_run (n_reads, n_features, and the depth
+   thresholds DEPTH_FAIL_BELOW / DEPTH_LOW_BELOW, from which depth_status is generated), and the `inferred`
+   reference assertions (Greengenes 13_8) on the profile. A stored profile that differs stops. Stored runs
+   without thresholds get them (NULLs only); stored runs with other thresholds stop unless --reflag-depth.
+6. **The depth report** (app.reports.depth), read back from Postgres: ok / low / fail / not profiled per group
+   (--group-by, a sample assertion field such as `treatment`), and what a filter at each threshold would
+   remove. Depth is a flag, never a filter: in PRJNA664026 the shallow runs are almost all Antibiotic.
 
 Tables are created append-only with 10-year log and file retention (decided 2026-10-13), so
 `VERSION AS OF core.profile.delta_version` stays readable; no OPTIMIZE/VACUUM is scheduled.
@@ -39,12 +44,14 @@ import asyncio
 import json
 import statistics
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from app.config import Settings, settings
 from app.lake import lineage as lin
+from app.reports.depth import status as depth_status
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
@@ -411,7 +418,22 @@ class ProfilePlan:
     source_sha256: str
     runs: list[dict[str, Any]]
     reference: dict[str, Any] | None          # evidence; None = the inference didn't hold, no assertion
+    depth_fail_below: int = 1000
+    depth_low_below: int = 5000
+    reflag_depth: bool = False                # apply new thresholds to stored runs (a deliberate change)
     params: dict[str, Any] = field(default_factory=dict)
+
+
+async def _depth_report(bioproject: str, group_by: str | None) -> str:
+    """Read back from Postgres, so the report shows the generated depth_status, not this job's own arithmetic."""
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from app.reports.depth import format_report, report
+    eng = _engine()
+    try:
+        async with AsyncSession(eng) as db:
+            return format_report(bioproject, await report(db, bioproject, group_by), group_by)
+    finally:
+        await eng.dispose()
 
 
 async def _write_profile(irid: int, plan: ProfilePlan) -> dict[str, int]:
@@ -424,8 +446,9 @@ async def _write_profile(irid: int, plan: ProfilePlan) -> dict[str, int]:
             "study_id": plan.study_id, "feature_type": FEATURE_TYPE, "taxon_rank": TAXON_RANK,
             "abundance_kind": ABUNDANCE_KIND, "delta_uri": plan.delta_uri, "delta_version": plan.delta_version,
             "source_uri": plan.source_uri, "source_sha256": plan.source_sha256}
-    counts = {"profile.new": 0, "profile_run.new": 0, "profile_run.existing": 0, "assertion.new": 0,
-              "assertion.existing": 0}
+    counts = {"profile.new": 0, "profile_run.new": 0, "profile_run.existing": 0, "profile_run.depth_filled": 0,
+              "profile_run.depth_reflagged": 0, "assertion.new": 0, "assertion.existing": 0}
+    depth = (plan.depth_fail_below, plan.depth_low_below)
     eng = _engine()
     try:
         async with AsyncSession(eng) as db:
@@ -442,19 +465,36 @@ async def _write_profile(irid: int, plan: ProfilePlan) -> dict[str, int]:
                     raise Stop(f"stored core.profile {stored.profile_id} differs (stored, new): {diff}")
                 profile_id = stored.profile_id
 
-            have = {r.run_acc: (r.n_reads, r.n_features) for r in (await db.execute(
-                select(ProfileRun.run_acc, ProfileRun.n_reads, ProfileRun.n_features)
+            have = {r.run_acc: r for r in (await db.execute(
+                select(ProfileRun.run_acc, ProfileRun.n_reads, ProfileRun.n_features, ProfileRun.depth_fail_below,
+                       ProfileRun.depth_low_below)
                 .where(ProfileRun.profile_id == profile_id))).all()}
-            rows = []
+            rows, set_depth = [], []
             for r in plan.runs:
-                if r["run_acc"] in have:
-                    if have[r["run_acc"]] != (r["n_reads"], r["n_features"]):
-                        raise Stop(f"stored profile_run {r['run_acc']} differs: {have[r['run_acc']]} vs "
+                h = have.get(r["run_acc"])
+                if h is not None:
+                    if (h.n_reads, h.n_features) != (r["n_reads"], r["n_features"]):
+                        raise Stop(f"stored profile_run {r['run_acc']} differs: {(h.n_reads, h.n_features)} vs "
                                    f"{(r['n_reads'], r['n_features'])}")
                     counts["profile_run.existing"] += 1
+                    stored_depth = (h.depth_fail_below, h.depth_low_below)
+                    if stored_depth == (None, None):
+                        set_depth.append(r["run_acc"])
+                        counts["profile_run.depth_filled"] += 1
+                    elif stored_depth != depth:
+                        if not plan.reflag_depth:
+                            raise Stop(f"stored profile_run {r['run_acc']} has depth thresholds {stored_depth}, the "
+                                       f"settings say {depth}: pass --reflag-depth to apply them (a deliberate change)")
+                        set_depth.append(r["run_acc"])
+                        counts["profile_run.depth_reflagged"] += 1
                 else:
                     rows.append({"profile_id": profile_id, "run_acc": r["run_acc"], "study_id": plan.study_id,
-                                 "n_reads": r["n_reads"], "n_features": r["n_features"], "ingest_run_id": irid})
+                                 "n_reads": r["n_reads"], "n_features": r["n_features"],
+                                 "depth_fail_below": depth[0], "depth_low_below": depth[1], "ingest_run_id": irid})
+            if set_depth:
+                await db.execute(update(ProfileRun).where(ProfileRun.profile_id == profile_id,
+                                                          ProfileRun.run_acc.in_(set_depth))
+                                 .values(depth_fail_below=depth[0], depth_low_below=depth[1]))
             extra = set(have) - {r["run_acc"] for r in plan.runs}
             if extra:
                 raise Stop(f"core.profile_run has runs the profile no longer has: {sorted(extra)[:5]}")
@@ -495,6 +535,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--bioproject", required=True, help="the study whose Species rows go to silver")
     ap.add_argument("--dry-run", action="store_true",
                     help="every guard, transform and the genus test; no ingest run, no Delta or Postgres writes")
+    ap.add_argument("--group-by", help="sample assertion field for the depth report, e.g. treatment")
+    ap.add_argument("--reflag-depth", action="store_true",
+                    help="apply DEPTH_FAIL_BELOW / DEPTH_LOW_BELOW to stored runs that have other thresholds")
     return ap
 
 
@@ -607,6 +650,10 @@ def run(argv: list[str] | None = None) -> int:
         params["reference_evidence"] = ref
 
         taxa = spark.createDataFrame(taxon_rows(species, key, irid, loaded_at), taxon_schema())
+        flags = Counter(depth_status(r["n_reads"], settings.depth_fail_below, settings.depth_low_below) for r in stats)
+        log(f"depth (fail < {settings.depth_fail_below}, low < {settings.depth_low_below}): "
+            + " ".join(f"{k} {flags.get(k, 0)}" for k in ("ok", "low", "fail"))
+            + f"; not profiled {len(pre['runs']) - len(stats)} of {len(pre['runs'])} catalog runs")
         if args.dry_run:
             log(f"dry run: feature_taxon {taxa.count()} rows, profile_abundance {abundance.count()} rows; nothing written")
             return 0
@@ -643,9 +690,11 @@ def run(argv: list[str] | None = None) -> int:
                            source_uri=paths.csv, source_sha256=got,
                            runs=[{k: r[k] for k in ("run_acc", "n_reads", "n_features")} for r in stats],
                            reference={"basis": "lineage shape, design doc §2.1.1", **ref} if ref_holds else None,
-                           params=params)
+                           depth_fail_below=settings.depth_fail_below, depth_low_below=settings.depth_low_below,
+                           reflag_depth=args.reflag_depth, params=params)
         counts = asyncio.run(_write_profile(irid, plan))
         log(f"postgres: ingest_run {irid} committed: " + json.dumps(counts, sort_keys=True))
+        print(asyncio.run(_depth_report(bioproject, args.group_by)), flush=True)
         return 0
     except Stop as e:
         log(f"ERROR {e}")
