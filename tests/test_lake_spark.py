@@ -5,7 +5,7 @@ import pytest
 from pydantic import SecretStr
 
 from app.config import Settings
-from app.lake.spark import redacted, spark_conf
+from app.lake.spark import duplicates, jar_coordinates, redacted, spark_conf
 
 
 def _settings(**over) -> Settings:
@@ -45,3 +45,27 @@ def test_secrets_are_redacted_and_never_in_settings_repr():
 def test_missing_credentials_are_named():
     with pytest.raises(ValueError, match="S3_SECRET_KEY"):
         spark_conf(_settings(s3_secret_key=SecretStr("")))
+
+
+def test_delta_s_hadoop_client_is_excluded():
+    c = spark_conf(_settings())
+    assert c["spark.jars.excludes"].split(",") == ["org.apache.hadoop:hadoop-client-api",
+                                                    "org.apache.hadoop:hadoop-client-runtime"]
+    assert "spark.jars.excludes" not in spark_conf(_settings(spark_jars_excludes=""))
+
+
+def test_jar_names_parse_for_ivy_and_pyspark():
+    assert jar_coordinates("file:///h/.ivy2.5.2/jars/org.apache.hadoop_hadoop-client-api-3.4.2.jar", ivy=True) == \
+        ("hadoop-client-api", "3.4.2")
+    assert jar_coordinates("commons-pool_commons-pool-1.6.jar", ivy=True) == ("commons-pool", "1.6")
+    assert jar_coordinates("io.delta_delta-spark_2.13-4.4.0.jar", ivy=True) == ("delta-spark_2.13", "4.4.0")
+    assert jar_coordinates("com.github.luben_zstd-jni-1.5.7-3.jar", ivy=True) == ("zstd-jni", "1.5.7-3")
+    assert jar_coordinates("jackson-module-scala_2.13-2.21.2.jar", ivy=False) == ("jackson-module-scala_2.13", "2.21.2")
+    assert jar_coordinates("no-version.jar", ivy=False) is None
+
+
+def test_duplicates_name_both_versions():
+    bundled = {"hadoop-client-api": "3.5.0", "parquet-hadoop": "1.17.0"}
+    jars = ["file:/j/org.apache.hadoop_hadoop-client-api-3.4.2.jar", "file:/j/org.apache.parquet_parquet-hadoop-1.16.0.jar",
+            "file:/j/org.apache.hadoop_hadoop-aws-3.5.0.jar"]
+    assert duplicates(jars, bundled) == [("hadoop-client-api", "3.4.2", "3.5.0"), ("parquet-hadoop", "1.16.0", "1.17.0")]
