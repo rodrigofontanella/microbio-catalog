@@ -1,0 +1,42 @@
+# Experimental design of PRJNA664026 (study 2), written and reviewed by hand. Loaded rows are tier 'curated'.
+#
+#   python -m app.ingest.design conf/designs/PRJNA664026.yml --dry-run
+#
+# Sources (2026-10-17):
+#   - BioSample attributes treatment, sex, tissue, isolate (90 samples; 24 animals parsed from isolate,
+#     sex and treatment constant per animal: ncbi_study --subject-constant)
+#   - PMC8001633 §2.1-2.2: 240 piglets in 2 rooms, 24 single-sex "blocks" (= pens) of 10, "8 blocks per
+#     treatment, 4 in each room"; at day 70 "one piglet per block (a total of eight piglets of each treatment)"
+#     was slaughtered. So one sampled piglet = one pen, and the pen is the experimental unit.
+# Decided 2026-10-17 (Rodrigo):
+#   - randomized_block: room is the block (4 pens per treatment per room), but NCBI doesn't record a piglet's
+#     room, so room is NOT a factor here; the curated fact 'room-block-not-recorded' says so.
+#   - sex is a design factor (kind nuisance): pens were single-sex and the authors model sex as a random factor.
+#     The balance shows Antibiotic 5 female / 3 male vs 4 / 4 elsewhere: the 51/52 pair (see the handoff).
+#   - subjects stay tier 'inferred': the paper confirms 24 sampled piglets, never what the isolate numbers are.
+
+bioproject: PRJNA664026
+subject_attr: isolate        # subjects exist from the NCBI ingest as 'isolate-<number>'
+
+experiment:
+  local_id: main
+  title: Allium extract vs colistin + zinc oxide vs control in weaned piglets, days 28-70
+  design_type: randomized_block
+  experimental_unit: pen     # 10 piglets per pen; one sampled per pen, so pen = sampled piglet
+
+factors:
+  - name: treatment
+    kind: treatment
+    source: {biosample_attr: treatment}
+    levels:
+      Control:          {control: true,  description: "basal diet (pre-starter days 28-42, starter days 43-70), ad libitum"}
+      Allium extract:   {control: false, description: "basal + Allium extract (Garlicon, DOMCA), equivalent to 20 mg/kg thiosulfinates and thiosulfonates"}
+      Antibiotic:       {control: true,  description: "positive control: basal + 120 mg/kg colistin (Nipoxyme 100) + 3000 ppm zinc oxide"}
+
+  - name: sex
+    kind: nuisance
+    description: "pens were single-sex (10 piglets each); a random factor in the authors' models"
+    source: {biosample_attr: sex}
+    levels:
+      female: {}
+      male: {}

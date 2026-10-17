@@ -1,0 +1,372 @@
+# Facts from the paper behind PRJNA664026 (study 2), for review. Loaded as tier 'curated' only once signed below.
+#
+#   python -m app.ingest.curation conf/curation/PRJNA664026.yml --dry-run
+#
+# Drafted by Claude from PMC8001633 (Rabelo-Ruiz et al. 2021, Antibiotics 10:269, doi 10.3390/antibiotics10030269,
+# CC BY), full text fetched 2026-10-17 (raw: ~/lab/raw/europepmc/20261017T120903Z/PMC8001633). Every quote is
+# checked verbatim against that full text by the loader; "not reported" facts are checked by searching the named
+# sections for the given patterns.
+# Decided 2026-10-17 (Rodrigo): subject_basis stays 'inferred' (the paper never says what the isolate numbers
+# are; the counts only corroborate: see 'sampled-one-per-pen'); room is a block that NCBI doesn't record per
+# piglet ('room-block-not-recorded'); sex is a nuisance factor of the design.
+# Review: read each fact against its quote, fix or delete what you disagree with, then sign.
+
+bioproject: PRJNA664026
+pmcid: PMC8001633
+method: paper_methods:PMC8001633
+review:
+  reviewed_by:
+  reviewed_on:
+
+facts:
+  # ── who was sampled: corroborates the 24 parsed subjects without naming the key ─────────────
+  - id: sampled-one-per-pen
+    target: {experiment: main}
+    field: sampled_animals
+    value_num: 24
+    unit: animals
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "one piglet per block (a total of eight piglets of each treatment) was slaughtered"
+    note: >-
+      24 sampled piglets, 8 per treatment, one per pen: exactly what the isolate parse gives (24 numbers, 8 per
+      treatment, sex and treatment constant per number). The paper never names the sample identifiers, so the 24
+      subject_basis rows stay 'inferred' (decided 2026-10-17).
+
+  - id: block-is-a-pen
+    target: {experiment: main}
+    field: pen_definition
+    value_text: "'block' in this paper = a pen of 10 same-sex piglets, 6.05 m2; not a statistical block"
+    section: 2.1. Piglets and Farm Facilities
+    quote: "were kept per block of 6.05 m2 (2.16 × 2.80 m2)"
+
+  - id: room-block-not-recorded
+    target: {experiment: main}
+    field: blocking_room
+    value_text: "2 rooms of 12 pens; 4 pens per treatment per room; a piglet's room is not recorded in NCBI, so room is not a loaded design factor"
+    section: 2.1. Piglets and Farm Facilities
+    quote: "Piglets were housed in a non-litter housing system consisting of 2 rooms, using a total of 24 blocks (12 of each room)."
+
+  # ── ARRIVE 2.0 Essential 10, on the experiment ─────────────────────────────
+  - id: arrive-1-design
+    target: {experiment: main}
+    field: "arrive:study_design"
+    value_text: "groups of 10 same-sex piglets randomly assigned to pens and 3 diets (Control; Allium extract; colistin + ZnO positive control); 8 pens per treatment, 4 per room in 2 rooms; one piglet per pen sampled at day 70"
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "groups of 10 piglets of the same sex were assigned randomly to different blocks (8 blocks per treatment, 4 in each room)"
+
+  - id: arrive-1-experimental-unit
+    target: {experiment: main}
+    field: "arrive:experimental_unit"
+    value_text: "pen (24) for productive parameters; the sampled piglet (one per pen) for diversity"
+    section: 2.6. Statistics
+    quote: "We used 24 experimental units (2 rooms of 12 experimental units each)"
+
+  - id: experimental-unit-diversity
+    target: {experiment: main}
+    field: experimental_unit_diversity
+    value_text: "piglet"
+    section: 2.6. Statistics
+    quote: "Piglet was used as experimental unit for alpha and beta diversity analysis."
+    note: "One piglet per pen, so piglet = pen here. But see 'analysis-model-diversity': the model's observations are samples."
+
+  - id: arrive-2-sample-size
+    target: {experiment: main}
+    field: "arrive:sample_size"
+    value_num: 240
+    unit: animals
+    section: 2.1. Piglets and Farm Facilities
+    quote: "A total of 240 piglets (50% female, 50% male) were used in the experiment."
+    note: "24 pens of 10; 24 piglets sampled for microbiota (8 per treatment)."
+
+  - id: arrive-2-sample-size-justification
+    target: {experiment: main}
+    field: "arrive:sample_size_justification"
+    value_text: "not reported in PMC8001633"
+    absent:
+      sections: ["2.1. Piglets and Farm Facilities", "2.2. Experimental Design and Sample Collection", "2.6. Statistics"]
+      patterns: ['\bpower\b', 'sample size']
+
+  - id: arrive-3-inclusion-exclusion
+    target: {experiment: main}
+    field: "arrive:inclusion_exclusion"
+    value_text: "animals with signs of illness or injury removed before the start; samples below 17,000 sequences excluded from diversity analyses (number excluded not reported)"
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "animals were examined and those with signs of illness or injury were removed"
+
+  - id: arrive-4-randomisation
+    target: {experiment: main}
+    field: "arrive:randomisation"
+    value_text: "groups randomly assigned to pens; method of randomisation not reported"
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "were assigned randomly to different blocks"
+
+  - id: arrive-5-blinding
+    target: {experiment: main}
+    field: "arrive:blinding"
+    value_text: "not reported in PMC8001633"
+    absent:
+      sections: ["2.2. Experimental Design and Sample Collection", "2.3. DNA Extraction", "2.4. High-Throughput Sequencing", "2.5. Sequences Processing and Data Analysis", "2.6. Statistics"]
+      patterns: ['blind', '\bmask']
+
+  - id: arrive-6-outcomes
+    target: {experiment: main}
+    field: "arrive:outcome_measures"
+    value_text: "body weight (days 28, 42, 70), ADG, ADFI, FCR, mortality; alpha diversity (observed species richness, Faith's PD); beta diversity (weighted and unweighted UniFrac)"
+    section: 2.6. Statistics
+    quote: "Two alpha diversity indices were calculated, i.e., bacterial species richness, as number of observed species; and Faith's phylogenetic diversity index"
+
+  - id: arrive-7-statistics
+    target: {experiment: main}
+    field: "arrive:statistical_methods"
+    value_text: "GLMM for productive parameters (Statistica 10); GLM for alpha diversity; PERMANOVA (type III, 999 permutations, PRIMER-7) on weighted and unweighted UniFrac; LSD post hoc, p < 0.05"
+    section: 2.6. Statistics
+    quote: "Permutational ANOVA (PERMANOVA) based on Type III sums of squares with 999 permutations was used to test treatment and gut region effects on both UniFrac distance matrixes"
+
+  - id: analysis-model-productive
+    target: {experiment: main}
+    field: analysis_model
+    value_text: "productive parameters: GLMM; treatment fixed; sex and room random; initial body weight covariate; 24 pens as experimental units"
+    section: 2.6. Statistics
+    quote: "We used 24 experimental units (2 rooms of 12 experimental units each) with treatment as fixed factor, sex, and room as random factors, and initial body weight as covariate."
+
+  - id: analysis-model-diversity
+    target: {experiment: main}
+    field: analysis_model_diversity
+    value_text: "alpha diversity: GLM with treatment, gut region and their interaction over samples; no piglet term stated although each piglet gave up to 4 samples (Table 1 error d.f. 61 counts samples, not the 24 piglets)"
+    section: 2.6. Statistics
+    quote: "We used General Linear Models (GLM) to explore the effect of treatment and gut region in different alpha diversity indices."
+    note: "The d.f. reading is ours (Claude, 2026-10-17): 73 samples - 12 parameters = 61. It makes the 4 regions of one piglet independent observations."
+
+  - id: arrive-8-animals-sex
+    target: {experiment: main}
+    field: "arrive:animals_sex"
+    value_text: "50% female, 50% male; pens single-sex"
+    section: 2.1. Piglets and Farm Facilities
+    quote: "Ten crossbred piglets of the same sex"
+    note: "NCBI: Antibiotic 5 female / 3 male, others 4 / 4. Only the 51/52 pair is mixed-sex: a possible label error, on the curation queue, not here."
+
+  - id: arrive-8-animals-strain
+    target: {experiment: main}
+    field: "arrive:animals_strain"
+    value_text: "crossbred 50% Pietrain x 25% Landrace x 25% Large White"
+    section: 2.1. Piglets and Farm Facilities
+    quote: "50% Pietrain × 25% Landrace* 25% Large White"
+    note: "The paper has '*' where '×' is meant."
+
+  - id: arrive-8-animals-weaning-age
+    target: {experiment: main}
+    field: weaning_age_days
+    value_num: 28
+    unit: d
+    section: 2.1. Piglets and Farm Facilities
+    quote: "Piglets were weaned at 28 days of life, with an average weight of 7.34 ± 0.89 kg."
+
+  - id: arrive-8-animals-weight
+    target: {experiment: main}
+    field: "arrive:animals_initial_body_weight"
+    value_num: 7.34
+    unit: kg
+    section: 2.1. Piglets and Farm Facilities
+    quote: "with an average weight of 7.34 ± 0.89 kg"
+    note: "± 0.89 kg here (SD?); Table 4 gives 7.34 (0.35) / 7.34 (0.33) / 7.32 (0.37) per treatment as mean (SEM?)."
+
+  - id: sampling-age
+    target: {experiment: main}
+    field: sampling_age_days
+    value_num: 70
+    unit: d
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "At the end of the experiment (70 days old)"
+
+  - id: diet-duration
+    target: {experiment: main}
+    field: diet_duration_days
+    value_num: 42
+    unit: d
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "Basal diet differed in pre-starter (28 to 42 days) and starter (43 to 70 days)"
+    note: "Days 28-70 of life = 42 days on the diets."
+
+  - id: treatment-allium
+    target: {experiment: main}
+    field: treatment_detail_allium
+    value_text: "basal diet + Allium extract (Garlicon, DOMCA S.A.U.), equivalent to 20 mg/kg thiosulfinates and thiosulfonates"
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "experimental piglets received basal diet supplemented with Allium extract (equivalent to 20 mg/kg of thiosulfinates and thiosulfonates)"
+
+  - id: treatment-antibiotic
+    target: {experiment: main}
+    field: treatment_detail_antibiotic
+    value_text: "positive control: basal diet + colistin 120 mg/kg (Nipoxyme 100) + zinc oxide 3000 ppm"
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "another group received basal diet supplemented with 120 mg/kg of the antibiotic colistin (Nipoxyme 100) and 3000 ppm of zinc oxide (ZnO) as positive control"
+    note: "The NCBI label 'Antibiotic' hides the ZnO: a pharmacological zinc dose is part of this treatment."
+
+  - id: arrive-9-housing-feeding
+    target: {experiment: main}
+    field: "arrive:procedures_housing"
+    value_text: "2 rooms, 24 single-sex pens of 10 piglets (6.05 m2), non-litter housing; natural and artificial light; temperature adjusted to age; feed and water ad libitum"
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "Both diets and water were supplied ad libitum."
+
+  - id: farm
+    target: {experiment: main}
+    field: farm
+    value_text: "IMASDE AGROALIMENTARIA S.L., Granja La Mata, Mata de Cuellar (Segovia, Spain); experimental authorisation B-82334855"
+    section: 2.1. Piglets and Farm Facilities
+    quote: "a swine experimental farm situated in Mata de Cuellar (Segovia, Spain)"
+
+  - id: ethics
+    target: {experiment: main}
+    field: "arrive:ethics"
+    value_text: "ethical review and approval waived; Directive 2010/63/EU; farm experimental authorisation B-82334855"
+    section: Institutional Review Board Statement
+    quote: "ethical review and approval were waived for this study"
+
+  - id: negative-controls
+    target: {experiment: main}
+    field: negative_controls
+    value_text: "not reported"
+    absent:
+      sections: ["2.3. DNA Extraction", "2.4. High-Throughput Sequencing", "2.5. Sequences Processing and Data Analysis"]
+      patterns: ['blank', 'negative control', 'mock', '\bNTC\b', 'no.template', '\bwater\b', 'reagent',
+                 'contamina', 'positive control']
+    note: "No extraction blanks or mock community mentioned; matters most for the duodenum (low biomass)."
+
+  # ── sampling: what each BioSample tissue is ────────────────────────────────
+  - id: sampling-duodenum
+    target: {samples: {field: tissue, equals: "Duodenum"}}
+    field: sampling_detail
+    value_text: "~100 mg gut content from a ~10 cm piece of duodenum, dissected with sterile material at slaughter (day 70), stored at -80 °C"
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "approximately 100 mg of gut content were collected"
+
+  - id: sampling-ileum
+    target: {samples: {field: tissue, equals: "Ileum"}}
+    field: sampling_detail
+    value_text: "~100 mg gut content from a ~10 cm piece of ileum, dissected with sterile material at slaughter (day 70), stored at -80 °C"
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "approximately 100 mg of gut content were collected"
+
+  - id: sampling-caecum
+    target: {samples: {field: tissue, equals: "Caecum"}}
+    field: sampling_detail
+    value_text: "~100 mg gut content from a ~10 cm piece of caecum, dissected with sterile material at slaughter (day 70), stored at -80 °C"
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "approximately 100 mg of gut content were collected"
+
+  - id: sampling-colon
+    target: {samples: {field: tissue, equals: "Colon"}}
+    field: sampling_detail
+    value_text: "~100 mg gut content from a ~10 cm piece of colon, dissected with sterile material at slaughter (day 70), stored at -80 °C"
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "approximately 100 mg of gut content were collected"
+
+  # ── the libraries: marker, region, wet lab ────────────────────────────────
+  - id: marker-region
+    target: {libraries: all}
+    field: target_region
+    value_text: "16S rRNA V4 (U515F; reverse primer named E786R, whose sequence is 806R)"
+    section: 2.4. High-Throughput Sequencing
+    quote: "Amplicon PCR was performed from bacterial total DNA of the V4 region of the 16S rRNA gene"
+
+  - id: extraction-kit
+    target: {libraries: all}
+    field: extraction_kit
+    value_text: "FavorPrep Stool DNA Isolation Mini Kit (Favorgen)"
+    section: 2.3. DNA Extraction
+    quote: "DNA extraction was carried out using FavorPrep Stool DNA Isolation Mini Kit (Favorgen Biotech Corp., Taiwan)"
+
+  - id: pcr-cycles
+    target: {libraries: all}
+    field: pcr_cycles
+    value_num: 25
+    section: 2.4. High-Throughput Sequencing
+    quote: "an amplification step of 25 cycles"
+    note: "Plus 8 cycles in the barcode (index) PCR."
+
+  - id: sequencing
+    target: {libraries: all}
+    field: sequencing_run
+    value_text: "Illumina MiSeq, CIC-UGR (University of Granada); read length not stated in the paper"
+    section: 2.4. High-Throughput Sequencing
+    quote: "High-throughput sequencing was carried out on Illumina MiSeq platform in the Scientific Instrumental Center at the University of Granada (CIC-UGR, Spain)."
+
+  # ── the paper's own analysis (facts about the paper, not our data) ────────
+  - id: paper-reads-used
+    target: {document: true}
+    field: reads_used
+    value_text: "forward reads only; reverse reads dropped (low quality after 120 bp)"
+    section: 2.5. Sequences Processing and Data Analysis
+    quote: "Forward reads were selected for the following analysis due to low quality in reverse reads after 120 bp (Phred score < 20)."
+
+  - id: paper-otu-method
+    target: {document: true}
+    field: otu_method
+    value_text: "QIIME2 v2018.02; cutadapt; Deblur sOTUs; truncated at 200 bp"
+    section: 2.5. Sequences Processing and Data Analysis
+    quote: "Afterwards, we used Deblur for sequence clustering into sub-OTUs"
+
+  - id: paper-taxonomy-reference
+    target: {document: true}
+    field: taxonomy_reference
+    value_text: "Greengenes 13_8, 99% (pretrained classifier)"
+    section: 2.5. Sequences Processing and Data Analysis
+    quote: "Taxonomy assignation was made with a classifier pretrained on Greengenes 13.08 with a similarity of 99%"
+    note: "The same reference we infer for PGMD's reprocessing, but the paper's sOTUs are not PGMD's features."
+
+  - id: paper-rarefaction
+    target: {document: true}
+    field: rarefaction_depth
+    value_num: 17000
+    unit: sequences
+    section: 2.6. Statistics
+    quote: "sOTU table was rarified at 17,000 sequences depth per sample"
+
+  - id: paper-sample-exclusion
+    target: {document: true}
+    field: sample_exclusion
+    value_text: "samples below 17,000 sequences excluded from alpha and beta diversity; the number excluded is not reported (Table 1 error d.f. 61 and Table 3's 16 + 15 + 15 + 15 imply 73 of 90 samples analysed)"
+    section: 2.6. Statistics
+    quote: "Samples that did not reach this sequencing depth were excluded for subsequent analyses."
+    note: >-
+      The 73 is our reading of the d.f. (Claude, 2026-10-17). Our depth report shows the shallow runs are almost
+      all Antibiotic, so the paper's Antibiotic diversity results likely rest on fewer samples than the others.
+
+  # ── errors and ambiguities in the paper (benchmark items; warnings on its findings) ──
+  - id: error-mortality
+    target: {document: true}
+    field: paper_error
+    value_text: "contradiction: Methods say no deaths were detected; Table 4 reports mortality days 28-70 of 5.00% (Control), 2.50% (Allium extract), 1.25% (Antibiotic)"
+    section: 2.2. Experimental Design and Sample Collection
+    quote: "No signs of loss of weight, abnormal behaviors or deaths were detected."
+
+  - id: error-random-factor
+    target: {document: true}
+    field: paper_error
+    value_text: "Table 4 caption names 'block' as a random factor; the Methods (2.6) and the table's own rows name room"
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: "exploring the effects of treatment as factor, sex, and block as random factors"
+    note: "PGMD copied this caption into its Project.csv (phenotypes info)."
+
+  - id: ambiguity-sample-count
+    target: {document: true}
+    field: paper_ambiguity
+    value_text: "6,548,564 reads / mean 70,415 per sample = 93.0 samples; 90 BioSamples deposited (SAMN16192455-SAMN16192544)"
+    section: 2.5. Sequences Processing and Data Analysis
+    quote: "giving a dataset of 6,548,564 total reads with a mean depth of 70,415 reads per sample"
+
+  - id: error-primer-name
+    target: {document: true}
+    field: paper_error
+    value_text: "reverse primer named E786R, but its sequence (GGACTACHVGGGTWTCTAAT) is the standard 806R"
+    section: 2.4. High-Throughput Sequencing
+    quote: "and E786R (5´-GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAGGGACTACHVGGGTWTCTAAT-3´)"
+    note: "The primer carries Illumina overhang adapters; its 3' end GGACTACHVGGGTWTCTAAT is 806R (Caporaso et al. 2011)."
+
+  - id: error-pcoa-axes
+    target: {document: true}
+    field: paper_error
+    value_text: "Methods: the first three PCoA axes were plotted; Figure 3 caption: the first two axes"
+    section: 2.6. Statistics
+    quote: "visualizations of the first three axes of the PCoA were plotted"
