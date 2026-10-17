@@ -4,6 +4,13 @@ and every BioSample attribute as an `asserted` prov.assertion.
     python -m app.ingest.ncbi_study PRJNA667518 --subject-attr Pen --pen-attr Pen --dry-run
     python -m app.ingest.ncbi_study PRJNA667518 --subject-attr Pen --pen-attr Pen
     python -m app.ingest.ncbi_study PRJNA667518 --subject-attr Pen --pen-attr Pen --from-raw <dir>
+    python -m app.ingest.ncbi_study PRJNA664026 --subject-pattern 'isolate=^(?P<code>Ci|I|Co|D)(?P<animal>[0-9]+)$' \
+        --subject-code-map 'tissue:Ci=Caecum,I=Ileum,Co=Colon,D=Duodenum' --subject-constant sex --subject-constant treatment
+
+Subjects: --subject-attr when an attribute's value is the animal; --subject-pattern when the animal is part of
+a value (named group `animal`, optional `code` checked against --subject-code-map). A parsed key is tier
+`inferred`: every value must parse, every code must agree with the sample's own attribute, an animal can't have
+the same code twice, and each --subject-constant must have one value per animal. Any failure stops the load.
 
 Order: fetch → write raw files + SHA256SUMS → parse → validate (errors stop here) → one
 transaction: prov.ingest_run, upserts, assertions, finished_at. A failure rolls the whole load back;
@@ -11,6 +18,9 @@ the raw files stay and can be reloaded with --from-raw without calling NCBI agai
 
 Re-runs are idempotent: entities are keyed by accession (existing rows are kept, NULL links are
 filled), and an assertion is only added if the same (entity, field, method, value) isn't there yet.
+"Filled" covers what another loader (PGMD) left NULL on existing rows: study title/description, sample SRS,
+subject link, run library and SRA run facts (spots, bases, length, release date). A non-NULL value is never
+overwritten.
 A value that changed at NCBI therefore appears as a second assertion, i.e. a conflict, not an overwrite.
 """
 from __future__ import annotations
@@ -19,6 +29,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -32,7 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.eutils import EUtils
-from app.ingest.ncbi_parse import (BioProject, BioSample, SraRun, is_null, parse_bioproject,
+from app.ingest.ncbi_parse import (BioProject, BioSample, SraRun, SubjectRule, is_null, parse_bioproject,
                                    parse_biosamples, parse_runinfo, subject_values, validate)
 from app.models import Assertion, IngestRun, Library, Run, Sample, Study, StudySample, Subject
 
@@ -110,7 +121,7 @@ async def _upsert_returning_new(db: AsyncSession, model, rows: list[dict], confl
 
 
 async def load(db: AsyncSession, project: BioProject, samples: list[BioSample], runs: list[SraRun], *,
-               subject_attr: str | None, pen_attr: str | None, litter_attr: str | None,
+               subject: SubjectRule | None, pen_attr: str | None, litter_attr: str | None,
                raw_dir: Path, manifest: dict[str, str], params: dict) -> tuple[int, Counter]:
     counts: Counter = Counter()
 
@@ -124,9 +135,15 @@ async def load(db: AsyncSession, project: BioProject, samples: list[BioSample], 
         "bioproject_acc": project.accession, "title": project.title, "description": project.description,
         "ingest_run_id": irid}], ["bioproject_acc"])
     study_id = (await db.execute(select(Study.study_id).where(Study.bioproject_acc == project.accession))).scalar_one()
+    for col, value in (("title", project.title), ("description", project.description)):
+        if value is not None:    # a study created by the PGMD loader has neither
+            res = await db.execute(update(Study).where(Study.study_id == study_id, getattr(Study, col).is_(None))
+                                   .values({col: value}))
+            counts[f"study.{col}_filled"] += res.rowcount or 0
 
-    # subjects: one per distinct value of the subject attribute
-    subj_of = subject_values(samples, subject_attr)
+    # subjects: one per distinct animal key (an attribute's value, or the animal parsed from it)
+    subj_of = subject_values(samples, subject)
+    key_prefix = subject.attr.lower() if subject else ""
     subject_rows: dict[str, dict] = {}
     for s in samples:
         key = subj_of.get(s.accession)
@@ -134,7 +151,7 @@ async def load(db: AsyncSession, project: BioProject, samples: list[BioSample], 
             continue
         taxid = s.get("host_taxid")
         subject_rows.setdefault(key, {
-            "study_id": study_id, "local_id": f"{subject_attr.lower()}-{key}",
+            "study_id": study_id, "local_id": f"{key_prefix}-{key}",
             "host_taxid": int(taxid) if taxid and taxid.isdigit() else None,
             "pen": None if pen_attr is None or is_null(s.get(pen_attr)) else s.get(pen_attr),
             "litter": None if litter_attr is None or is_null(s.get(litter_attr)) else s.get(litter_attr),
@@ -146,17 +163,18 @@ async def load(db: AsyncSession, project: BioProject, samples: list[BioSample], 
 
     # samples (+ fill subject/SRS links that an earlier load left NULL)
     sample_rows = [{"biosample_acc": s.accession, "sra_sample_acc": s.sra_accession,
-                    "subject_id": subject_id.get(f"{subject_attr.lower()}-{subj_of[s.accession]}")
+                    "subject_id": subject_id.get(f"{key_prefix}-{subj_of[s.accession]}")
                     if s.accession in subj_of else None,
                     "ingest_run_id": irid} for s in samples]
     counts["sample.new"] = await _upsert_returning_new(db, Sample, sample_rows, ["biosample_acc"])
     for r in sample_rows:
-        if r["subject_id"] is None:
-            continue
-        res = await db.execute(update(Sample).where(Sample.biosample_acc == r["biosample_acc"],
-                                                    Sample.subject_id.is_(None))
-                               .values(subject_id=r["subject_id"]))
-        counts["sample.subject_filled"] += res.rowcount or 0
+        for col in ("subject_id", "sra_sample_acc"):
+            if r[col] is None:
+                continue
+            res = await db.execute(update(Sample).where(Sample.biosample_acc == r["biosample_acc"],
+                                                        getattr(Sample, col).is_(None))
+                                   .values({col: r[col]}))
+            counts[f"sample.{col.removesuffix('_id').removesuffix('_acc')}_filled"] += res.rowcount or 0
     sample_id = {acc: sid for acc, sid in (await db.execute(
         select(Sample.biosample_acc, Sample.sample_id).where(
             Sample.biosample_acc.in_([s.accession for s in samples])))).all()}
@@ -183,10 +201,15 @@ async def load(db: AsyncSession, project: BioProject, samples: list[BioSample], 
                  "avg_read_len": r.avg_read_len, "release_date": r.release_date, "ingest_run_id": irid}
                 for r in runs]
     counts["run.new"] = await _upsert_returning_new(db, Run, run_rows, ["run_acc"])
-    for r in run_rows:   # a run created earlier without SRA info (e.g. from PGMD) gets its library now
+    for r in run_rows:   # a run created earlier without SRA info (e.g. from PGMD) gets its library + facts now
         res = await db.execute(update(Run).where(Run.run_acc == r["run_acc"], Run.library_id.is_(None))
                                .values(library_id=r["library_id"]))
         counts["run.library_filled"] += res.rowcount or 0
+        res = await db.execute(update(Run).where(
+            Run.run_acc == r["run_acc"], Run.spots.is_(None), Run.bases.is_(None),
+            Run.avg_read_len.is_(None), Run.release_date.is_(None)).values(
+            spots=r["spots"], bases=r["bases"], avg_read_len=r["avg_read_len"], release_date=r["release_date"]))
+        counts["run.sra_facts_filled"] += res.rowcount or 0
 
     # assertions: every BioSample attribute, raw, tier 'asserted'
     existing = {tuple(x) for x in (await db.execute(
@@ -212,11 +235,20 @@ async def load(db: AsyncSession, project: BioProject, samples: list[BioSample], 
                              "harmonized_name": a.harmonized_name, "display_name": a.display_name,
                              "raw_file": "biosample.xml", "raw_sha256": manifest["biosample.xml"]}})
 
-    # how each subject was identified: 'asserted' only if the source gives an animal id
-    if subject_attr:
-        tier = "asserted" if subject_attr.lower() in SUBJECT_KEY_ATTRS else "inferred"
-        basis = (f"one subject per distinct BioSample {subject_attr!r} value"
-                 + ("" if tier == "asserted" else "; assumes one sampled animal per value. Verify in the paper's Methods"))
+    # how each subject was identified: 'asserted' only if the source gives an animal id as a whole value
+    if subject:
+        tier = "asserted" if subject.attr.lower() in SUBJECT_KEY_ATTRS and not subject.is_parsed else "inferred"
+        if subject.is_parsed:
+            basis = (f"one subject per animal parsed from BioSample {subject.attr!r} with "
+                     f"{subject.pattern.pattern!r}; assumes the parsed number is the same animal across samples. "
+                     "Verify in the paper's Methods")
+            value_text = f"biosample_attr:{subject.attr} ~ {subject.pattern.pattern}"
+            method = "ingest_rule:subject_from_pattern"
+        else:
+            basis = (f"one subject per distinct BioSample {subject.attr!r} value"
+                     + ("" if tier == "asserted" else "; assumes one sampled animal per value. Verify in the paper's Methods"))
+            value_text = f"biosample_attr:{subject.attr}"
+            method = "ingest_rule:subject_from_attr"
         have = {sid for (sid,) in (await db.execute(select(Assertion.subject_id).where(
             Assertion.subject_id.in_(list(subject_id.values())), Assertion.field == "subject_basis"))).all()}
         this_load = {row["local_id"] for row in subject_rows.values()}
@@ -224,9 +256,10 @@ async def load(db: AsyncSession, project: BioProject, samples: list[BioSample], 
             if subj in have or lid not in this_load:
                 continue
             new_assertions.append({
-                "subject_id": subj, "field": "subject_basis", "value_text": f"biosample_attr:{subject_attr}",
-                "tier": tier, "method": "ingest_rule:subject_from_attr", "ingest_run_id": irid,
-                "evidence": {"rule": basis, "bioproject": project.accession}})
+                "subject_id": subj, "field": "subject_basis", "value_text": value_text,
+                "tier": tier, "method": method, "ingest_run_id": irid,
+                "evidence": {"rule": basis, "bioproject": project.accession, "subject_rule": subject.describe(),
+                             "checked_constant": params.get("subject_constants", [])}})
 
     # a multi-row INSERT needs the same keys in every row: the exclusive arc's other targets are NULL
     targets = ("study_id", "subject_id", "sample_id", "library_id", "run_acc", "genome_acc")
@@ -245,8 +278,15 @@ async def load(db: AsyncSession, project: BioProject, samples: list[BioSample], 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="python -m app.ingest.ncbi_study", description=__doc__.splitlines()[0])
     ap.add_argument("bioproject", help="BioProject accession, e.g. PRJNA667518")
-    ap.add_argument("--subject-attr", default="host_subject_id",
-                    help="BioSample attribute that identifies the animal (default: host_subject_id)")
+    ap.add_argument("--subject-attr",
+                    help="BioSample attribute whose value is the animal (default: host_subject_id)")
+    ap.add_argument("--subject-pattern",
+                    help="ATTR=REGEX with a named group (?P<animal>…) and optionally (?P<code>…): the animal is "
+                         "part of the value, e.g. \"isolate=^(?P<code>Ci|I|Co|D)(?P<animal>[0-9]+)$\"")
+    ap.add_argument("--subject-code-map",
+                    help="ATTR:CODE=VALUE,… : each code must equal the sample's ATTR, e.g. 'tissue:Ci=Caecum,I=Ileum'")
+    ap.add_argument("--subject-constant", action="append", default=[],
+                    help="BioSample attribute that must have one value per animal (repeatable), e.g. sex")
     ap.add_argument("--pen-attr", help="BioSample attribute holding the pen")
     ap.add_argument("--litter-attr", help="BioSample attribute holding the litter / dam")
     ap.add_argument("--from-raw", type=Path, help="reload a raw folder instead of calling NCBI")
@@ -278,8 +318,13 @@ async def run(argv: list[str] | None = None) -> int:
         return 2
     samples = parse_biosamples(fetched.biosample_xml)
     runs = parse_runinfo(fetched.runinfo_csv)
-    constant = tuple(a for a in (args.pen_attr, args.litter_attr, "host_taxid") if a)
-    check = validate(project, samples, runs, args.subject_attr, constant)
+    try:
+        subject = SubjectRule.from_cli(args.subject_attr, args.subject_pattern, args.subject_code_map)
+    except (ValueError, re.error) as e:
+        print(f"ERROR {e}", file=sys.stderr)
+        return 2
+    constant = tuple(a for a in (args.pen_attr, args.litter_attr, "host_taxid", *args.subject_constant) if a)
+    check = validate(project, samples, runs, subject, constant)
     print(f"parsed: {len(samples)} BioSamples, {len(runs)} runs, "
           f"{len({r.experiment for r in runs})} experiments; title: {project.title!r}", file=sys.stderr)
     for w in check.warnings:
@@ -289,7 +334,11 @@ async def run(argv: list[str] | None = None) -> int:
     if not check.ok:
         return 1
 
-    params = {"bioproject": acc, "bioproject_uid": project.uid, "subject_attr": args.subject_attr,
+    subj = subject_values(samples, subject)
+    print(f"subjects: {len(set(subj.values()))} animals from {len(subj)} of {len(samples)} BioSamples "
+          f"({'parsed from ' + subject.attr if subject.is_parsed else subject.attr})", file=sys.stderr)
+    params = {"bioproject": acc, "bioproject_uid": project.uid, "subject_attr": subject.attr,
+              "subject_rule": subject.describe(), "subject_constants": list(args.subject_constant),
               "pen_attr": args.pen_attr, "litter_attr": args.litter_attr,
               "fetched_at": (fetched_at.isoformat() if not args.from_raw else f"from_raw:{raw_dir.name}"),
               "from_raw": bool(args.from_raw), "manifest": manifest, "dry_run": args.dry_run,
@@ -297,7 +346,7 @@ async def run(argv: list[str] | None = None) -> int:
 
     from app.database import AsyncSessionLocal   # imported here: the engine is built from settings
     async with AsyncSessionLocal() as db:
-        irid, counts = await load(db, project, samples, runs, subject_attr=args.subject_attr,
+        irid, counts = await load(db, project, samples, runs, subject=subject,
                                   pen_attr=args.pen_attr, litter_attr=args.litter_attr,
                                   raw_dir=raw_dir, manifest=manifest, params=params)
         if args.dry_run:

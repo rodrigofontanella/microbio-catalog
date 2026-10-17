@@ -1,7 +1,8 @@
 """Parser, validation, raw-file and E-utilities tests for the NCBI study ingest. No database.
 
 Fixtures are real NCBI responses for PRJNA667518, fetched 2026-10-10/11: the BioProject record, and
-BioSamples + run info trimmed to pens 101 and 102 (8 BioSamples).
+BioSamples + run info trimmed to pens 101 and 102 (8 BioSamples). PRJNA664026 (fetched 2026-10-10, Pass 2):
+BioSamples + run info trimmed to animals 54 (4 sites), 51 (1), 178 (2) and 191 (3): 10 BioSamples.
 """
 from __future__ import annotations
 
@@ -14,8 +15,8 @@ import pytest
 import respx
 
 from app.eutils import EUtils
-from app.ingest.ncbi_parse import (is_null, parse_bioproject, parse_biosamples, parse_runinfo,
-                                   subject_values, validate)
+from app.ingest.ncbi_parse import (BioProject, SubjectRule, is_null, parse_bioproject, parse_biosamples,
+                                   parse_runinfo, subject_values, validate)
 from app.ingest.ncbi_study import Fetched, read_raw, write_raw
 from app.ncbi_client import NCBIUnavailableError
 
@@ -193,3 +194,74 @@ async def test_runinfo_pages_keep_one_header(monkeypatch):
     assert pages.call_count == 2
     assert pages.calls[1].request.url.params["retstart"] == "5"
     assert out.count(header) == 1 and len(parse_runinfo(out)) == 8
+
+
+# ── a parsed animal key (PRJNA664026: isolate = tissue code + animal number) ────────────────────
+
+FIX2 = Path(__file__).parent / "fixtures" / "ncbi" / "PRJNA664026"
+PATTERN = "isolate=^(?P<code>Ci|I|Co|D)(?P<animal>[0-9]+)$"
+CODES = "tissue:Ci=Caecum,I=Ileum,Co=Colon,D=Duodenum"
+P2 = BioProject("PRJNA664026", "664026", None, None)
+
+
+@pytest.fixture(scope="module")
+def piglets():
+    return parse_biosamples((FIX2 / "biosample.xml").read_bytes()), parse_runinfo((FIX2 / "runinfo.csv").read_bytes())
+
+
+def _with(sample, **attrs):
+    new = tuple(dataclasses.replace(a, value=attrs[a.attribute_name]) if a.attribute_name in attrs else a
+                for a in sample.attributes)
+    return dataclasses.replace(sample, attributes=new)
+
+
+def test_rule_from_cli():
+    r = SubjectRule.from_cli(None, PATTERN, CODES)
+    assert (r.attr, r.code_attr, dict(r.code_map)["Ci"], r.is_parsed) == ("isolate", "tissue", "Caecum", True)
+    assert SubjectRule.from_cli(None, None, None).attr == "host_subject_id"
+    assert not SubjectRule.from_cli("Pen", None, None).is_parsed
+    with pytest.raises(ValueError, match="not both"):
+        SubjectRule.from_cli("Pen", PATTERN, None)
+    with pytest.raises(ValueError, match="animal"):
+        SubjectRule.from_cli(None, "isolate=^[A-Za-z]+([0-9]+)$", None)
+    with pytest.raises(ValueError, match="code"):
+        SubjectRule.from_cli(None, "isolate=^[A-Za-z]+(?P<animal>[0-9]+)$", CODES)
+
+
+def test_parsed_key_groups_sites_into_animals(piglets):
+    samples, runs = piglets
+    rule = SubjectRule.from_cli(None, PATTERN, CODES)
+    keys = subject_values(samples, rule)
+    assert len(keys) == 10
+    assert sorted(set(keys.values()), key=int) == ["51", "54", "178", "191"]
+    assert sorted(list(keys.values()).count(a) for a in set(keys.values())) == [1, 2, 3, 4]
+    v = validate(P2, samples, runs, rule, ("host_taxid", "sex", "treatment"))
+    assert v.ok, v.errors
+    assert len(subject_values(samples, "isolate")) == 10 and len(set(subject_values(samples, "isolate").values())) == 10
+
+
+def test_a_code_that_disagrees_with_the_tissue_stops(piglets):
+    samples, runs = piglets
+    i = next(n for n, s in enumerate(samples) if s.get("isolate") == "Ci54")
+    bad = samples[:i] + [_with(samples[i], tissue="Colon")] + samples[i + 1:]
+    errors = validate(P2, bad, runs, SubjectRule.from_cli(None, PATTERN, CODES), ()).errors
+    assert any("'Ci54' says tissue 'Caecum', the sample says 'Colon'" in e for e in errors)
+
+
+def test_an_unparsable_value_and_a_repeated_code_stop(piglets):
+    samples, runs = piglets
+    rule = SubjectRule.from_cli(None, PATTERN, CODES)
+    bad = [_with(samples[0], isolate="Cecum54")] + samples[1:]
+    assert any("don't match" in e for e in validate(P2, bad, runs, rule, ()).errors)
+    i = next(n for n, s in enumerate(samples) if s.get("isolate") == "I54")
+    twice = samples + [dataclasses.replace(samples[i], accession="SAMN00000001")]
+    assert any("animal '54' has code 'I' twice" in e for e in validate(P2, twice, runs, rule, ()).errors)
+
+
+def test_an_animal_with_two_treatments_stops(piglets):
+    samples, runs = piglets
+    i = next(n for n, s in enumerate(samples) if s.get("isolate") == "D54")
+    other = "Control" if samples[i].get("treatment") != "Control" else "Antibiotic"
+    bad = samples[:i] + [_with(samples[i], treatment=other)] + samples[i + 1:]
+    errors = validate(P2, bad, runs, SubjectRule.from_cli(None, PATTERN, CODES), ("treatment",)).errors
+    assert any("subject '54': 'treatment' differs" in e for e in errors)

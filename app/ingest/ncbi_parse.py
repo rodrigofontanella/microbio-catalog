@@ -165,20 +165,88 @@ def parse_runinfo(csv_bytes: bytes) -> list[SraRun]:
     return runs
 
 
-def subject_values(samples: list[BioSample], attr: str | None) -> dict[str, str]:
-    """BioSample accession → value of the attribute that identifies the animal (absent ⇒ no key)."""
-    if not attr:
+@dataclass(frozen=True)
+class SubjectRule:
+    """How a BioSample names its animal.
+
+    attr only: the attribute's value *is* the animal key (PRJNA667518's `Pen`).
+    attr + pattern: the key is the pattern's named group `animal` (PRJNA664026's `isolate` = tissue code + animal
+    number, e.g. 'Ci54'). An optional group `code` is checked against `code_map` on `code_attr`: a code that
+    disagrees with the sample's own attribute stops the load, because then the string isn't what we think it is.
+    """
+    attr: str
+    pattern: re.Pattern[str] | None = None
+    code_attr: str | None = None
+    code_map: tuple[tuple[str, str], ...] = ()
+
+    @classmethod
+    def from_cli(cls, attr: str | None, pattern: str | None, code_map: str | None) -> "SubjectRule":
+        """attr: 'Pen'; pattern: 'isolate=^(?P<code>Ci|I|Co|D)(?P<animal>[0-9]+)$';
+        code_map: 'tissue:Ci=Caecum,I=Ileum,Co=Colon,D=Duodenum'."""
+        if pattern:
+            if attr:
+                raise ValueError("give --subject-attr or --subject-pattern, not both")
+            attr, _, rx = pattern.partition("=")
+            if not attr or not rx:
+                raise ValueError(f"--subject-pattern must be ATTR=REGEX, got {pattern!r}")
+            compiled = re.compile(rx)
+            if "animal" not in compiled.groupindex:
+                raise ValueError(f"--subject-pattern needs a named group (?P<animal>…): {rx!r}")
+        else:
+            compiled = None
+        code_attr, pairs = None, ()
+        if code_map:
+            if compiled is None or "code" not in compiled.groupindex:
+                raise ValueError("--subject-code-map needs a --subject-pattern with a named group (?P<code>…)")
+            code_attr, _, body = code_map.partition(":")
+            pairs = tuple(tuple(x.split("=", 1)) for x in body.split(","))
+            if not code_attr or not pairs or any(len(p) != 2 or not p[0] or not p[1] for p in pairs):
+                raise ValueError(f"--subject-code-map must be ATTR:CODE=VALUE,…, got {code_map!r}")
+        return cls(attr=(attr or "host_subject_id").strip(), pattern=compiled,
+                   code_attr=code_attr.strip() if code_attr else None, code_map=pairs)
+
+    @property
+    def is_parsed(self) -> bool:
+        return self.pattern is not None
+
+    def describe(self) -> dict:
+        return {"attr": self.attr, "pattern": self.pattern.pattern if self.pattern else None,
+                "code_attr": self.code_attr, "code_map": dict(self.code_map)}
+
+    def match(self, s: BioSample) -> tuple[str | None, str | None, str | None]:
+        """(animal key, code, raw value); key None if the attribute is absent or doesn't match."""
+        v = s.get(self.attr)
+        if is_null(v):
+            return None, None, None
+        if self.pattern is None:
+            return v, None, v
+        m = self.pattern.fullmatch(v)
+        if not m:
+            return None, None, v
+        return m["animal"], (m["code"] if "code" in m.groupdict() else None), v
+
+
+def _rule(subject: "SubjectRule | str | None") -> "SubjectRule | None":
+    if subject is None or isinstance(subject, SubjectRule):
+        return subject
+    return SubjectRule(attr=subject)
+
+
+def subject_values(samples: list[BioSample], subject: "SubjectRule | str | None") -> dict[str, str]:
+    """BioSample accession → animal key (absent or unparsable ⇒ no key; validate() reports those)."""
+    rule = _rule(subject)
+    if rule is None:
         return {}
     out = {}
     for s in samples:
-        v = s.get(attr)
-        if not is_null(v):
-            out[s.accession] = v
+        key, _, _ = rule.match(s)
+        if key is not None:
+            out[s.accession] = key
     return out
 
 
 def validate(project: BioProject, samples: list[BioSample], runs: list[SraRun],
-             subject_attr: str | None, constant_per_subject: tuple[str, ...]) -> Validation:
+             subject: "SubjectRule | str | None", constant_per_subject: tuple[str, ...]) -> Validation:
     """Refuse to load what doesn't add up. Errors stop the ingest; warnings are reported."""
     v = Validation()
     accs = [s.accession for s in samples]
@@ -204,11 +272,34 @@ def validate(project: BioProject, samples: list[BioSample], runs: list[SraRun],
     if no_run:
         v.warnings.append(f"{len(no_run)} BioSamples have no SRA run: {no_run[:5]}")
 
-    if subject_attr:
-        subj = subject_values(samples, subject_attr)
-        missing = [a for a in accs if a not in subj]
+    rule = _rule(subject)
+    if rule:
+        subj = subject_values(samples, rule)
+        missing = [s.accession for s in samples if is_null(s.get(rule.attr))]
         if missing:
-            v.warnings.append(f"{len(missing)} BioSamples lack {subject_attr!r}; they get no subject: {missing[:5]}")
+            v.warnings.append(f"{len(missing)} BioSamples lack {rule.attr!r}; they get no subject: {missing[:5]}")
+        if rule.is_parsed:
+            # a parsed key is an inference about a string: every value must parse, and codes must agree
+            unparsed = [(s.accession, rule.match(s)[2]) for s in samples
+                        if not is_null(s.get(rule.attr)) and s.accession not in subj]
+            if unparsed:
+                v.errors.append(f"{len(unparsed)} {rule.attr!r} values don't match {rule.pattern.pattern!r}: {unparsed[:5]}")
+            codes = dict(rule.code_map)
+            seen: dict[tuple[str, str], str] = {}
+            for s in samples:
+                key, code, raw = rule.match(s)
+                if key is None or code is None:
+                    continue
+                if codes:
+                    want, got = codes.get(code), s.get(rule.code_attr)
+                    if want is None:
+                        v.errors.append(f"{s.accession}: {rule.attr} {raw!r} has code {code!r}, not in the code map")
+                    elif got != want:
+                        v.errors.append(f"{s.accession}: {rule.attr} {raw!r} says {rule.code_attr} {want!r}, "
+                                        f"the sample says {got!r}")
+                if (key, code) in seen:
+                    v.errors.append(f"animal {key!r} has code {code!r} twice: {seen[(key, code)]}, {s.accession}")
+                seen[(key, code)] = s.accession
         by_subject: dict[str, list[BioSample]] = defaultdict(list)
         for s in samples:
             if s.accession in subj:
