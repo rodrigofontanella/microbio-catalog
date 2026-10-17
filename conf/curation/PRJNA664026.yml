@@ -330,8 +330,11 @@ facts:
     section: 2.6. Statistics
     quote: "Samples that did not reach this sequencing depth were excluded for subsequent analyses."
     note: >-
-      The 73 is our reading of the d.f. (Claude, 2026-10-17). Our depth report shows the shallow runs are almost
-      all Antibiotic, so the paper's Antibiotic diversity results likely rest on fewer samples than the others.
+      The 73 is our reading of the d.f. (Claude, 2026-10-17). SRA raw read pairs below 17,000 (checked
+      2026-10-17, core.run.spots): Antibiotic 13 of 28, Control 2 of 30, Allium extract 0 of 32: 15 of the
+      ~17 exclusions are certain from raw depth alone (post-QC reads are fewer). So the paper's Antibiotic
+      diversity results rest on at most 15 of its 28 samples, against at most 28 of 30 Control and 32 of 32 Allium
+      extract (where the remaining ~2 exclusions fell is unknown).
 
   # ── errors and ambiguities in the paper (benchmark items; warnings on its findings) ──
   - id: error-mortality
