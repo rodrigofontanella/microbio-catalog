@@ -249,3 +249,50 @@ def test_sha256_streams_through_the_jvm_and_sums_are_parsed(spark, tmp_path):
     assert job.expected_sha256(spark, sums.as_uri(), "Microbial.csv") == digest
     with pytest.raises(job.Stop, match="Lefse.csv is not listed"):
         job.expected_sha256(spark, sums.as_uri(), "Lefse.csv")
+
+
+# ── PGMD's missing 'Genus;__' remainder rows (decided 2026-11-07) ─────────────────────────────────
+
+def gap(run, genus, species_sum, genus_row):
+    return {"run_acc": run, "genus": genus, "species_sum": species_sum, "genus_row": genus_row,
+            "verdict": "species_smaller" if species_sum < genus_row else "species_larger"}
+
+
+def test_gaps_tolerated_only_when_small_rare_and_species_smaller():
+    # PRJEB31015's shape: 1 of 3,235 keys, Helicobacter 1,273 vs 1,274
+    one = [gap("ERR3130330", "…;Helicobacteraceae;Helicobacter", 1273, 1274)]
+    assert job.genus_gaps_tolerated({"equal": 3234, "species_smaller": 1}, one, 3235)
+    # PRJNA214736's shape: 3 of 2,601 keys, 2-3 reads each
+    three = [gap("SRR984533", "g1", 9545, 9547), gap("SRR987438", "g2", 43562, 43565), gap("SRR987439", "g3", 575, 578)]
+    assert job.genus_gaps_tolerated({"equal": 2598, "species_smaller": 3}, three, 2601)
+    # 4 reads short: not a remainder row we tolerate
+    assert not job.genus_gaps_tolerated({"equal": 3234, "species_smaller": 1}, [gap("r", "g", 100, 104)], 3235)
+    # species larger: never
+    assert not job.genus_gaps_tolerated({"equal": 3234, "species_larger": 1}, [gap("r", "g", 101, 100)], 3235)
+    # a genus only on one side: never
+    assert not job.genus_gaps_tolerated({"equal": 3234, "species_smaller": 1, "only_in_genus": 1},
+                                        [gap("r", "g", 99, 100)], 3236)
+    # more than 1% of keys: never (2 of 100)
+    assert not job.genus_gaps_tolerated({"equal": 98, "species_smaller": 2},
+                                        [gap("r", "g", 99, 100), gap("r", "h", 99, 100)], 100)
+    # the mismatch list must be complete
+    assert not job.genus_gaps_tolerated({"equal": 2598, "species_smaller": 3}, three[:2], 2601)
+    assert not job.genus_gaps_tolerated({}, [], 0)
+
+
+@needs_java
+def test_genus_test_tolerates_only_within_the_decided_bounds(spark, tmp_path):
+    osc = ("SRR0000001", "Bacteria;Firmicutes;Clostridia;Clostridiales;Ruminococcaceae;Oscillospira")
+    _, study, species = study_and_species(spark, tmp_path, fixture_rows({osc: 61}))
+    ab = job.build_abundance(species, KEY, "ab" * 32, 3, 7, LOADED)
+    # 1 short key in 12 is 8%: above the decided 1%, so it still fails (the existing test above stays right)
+    gt = job.genus_test(ab, study)
+    assert (gt["passed"], gt["tolerated"], gt["mismatches"]) == (False, False, [])
+    # with the fraction raised, the same 1-read gap is tolerated and listed
+    gt = job.genus_test(ab, study, max_fraction=0.10)
+    assert (gt["passed"], gt["tolerated"]) == (False, True)
+    assert [(m["run_acc"], m["species_sum"], m["genus_row"]) for m in gt["mismatches"]] == [("SRR0000001", 60, 61)]
+    # 5 reads short is never a remainder row, whatever the fraction
+    _, study, species = study_and_species(spark, tmp_path, fixture_rows({osc: 65}))
+    gt = job.genus_test(job.build_abundance(species, KEY, "ab" * 32, 3, 7, LOADED), study, max_fraction=0.10)
+    assert (gt["passed"], gt["tolerated"]) == (False, False)

@@ -80,6 +80,12 @@ TABLE_PROPERTIES = {
     "delta.deletedFileRetentionDuration": "interval 3650 days",
 }
 REFERENCE_METHOD = "pgmd_profile:reference_from_lineage_shape"
+GENUS_GAP_METHOD = "pgmd_profile:genus_test"
+# PGMD sometimes leaves out the 'Genus;__' remainder row at Species level (seen 2026-11-07: 9 cells in 4 studies,
+# 1-3 reads each). Decided 2026-11-07: tolerated when EVERY mismatch is species-smaller by <= 3 reads in <= 1% of
+# the (run, genus) keys; recorded on the ingest run and as an inferred assertion on the profile. Anything else stops.
+GENUS_GAP_MAX_READS = 3
+GENUS_GAP_MAX_KEY_FRACTION = 0.01
 
 
 class Stop(Exception):
@@ -254,8 +260,24 @@ def per_run_stats(abundance: "DataFrame") -> list[dict[str, Any]]:
         F.count(F.lit(1)).alias("n_rows")).orderBy("run_acc").collect()]
 
 
-def genus_test(abundance: "DataFrame", study_rows: "DataFrame") -> dict[str, Any]:
-    """Species counts rolled up to the 6-segment lineage vs PGMD's own Genus rows, per (run, genus)."""
+def genus_gaps_tolerated(verdicts: dict[str, int], mismatches: list[dict], keys: int,
+                         max_reads: int = GENUS_GAP_MAX_READS,
+                         max_fraction: float = GENUS_GAP_MAX_KEY_FRACTION) -> bool:
+    """True only for PGMD's missing remainder rows: every non-equal key is species-smaller by <= max_reads, and
+    they are <= max_fraction of all keys. Pure; `mismatches` must hold every non-equal key."""
+    bad = {k: v for k, v in verdicts.items() if k != "equal" and v}
+    if not keys or set(bad) != {"species_smaller"} or bad["species_smaller"] > max_fraction * keys:
+        return False
+    if len(mismatches) != bad["species_smaller"]:
+        return False
+    return all(0 < m["genus_row"] - m["species_sum"] <= max_reads for m in mismatches)
+
+
+def genus_test(abundance: "DataFrame", study_rows: "DataFrame", max_reads: int = GENUS_GAP_MAX_READS,
+               max_fraction: float = GENUS_GAP_MAX_KEY_FRACTION) -> dict[str, Any]:
+    """Species counts rolled up to the 6-segment lineage vs PGMD's own Genus rows, per (run, genus).
+    passed = every key equal. tolerated = not passed, but only PGMD's missing remainder rows (genus_gaps_tolerated);
+    then `mismatches` lists every non-equal key (bounded by max_fraction of the keys)."""
     from pyspark.sql import functions as F
     sp = (abundance.select("run_acc", genus_lineage("feature_id").alias("genus"), "count")
           .groupBy("run_acc", "genus").agg(F.sum("count").alias("species_sum")))
@@ -275,6 +297,12 @@ def genus_test(abundance: "DataFrame", study_rows: "DataFrame") -> dict[str, Any
     out = {"keys": sum(counts.values()), "equal": counts.get("equal", 0), "verdicts": counts,
            "runs": runs.count(), "runs_all_equal": runs.filter("ok = 1").count(), "examples": examples}
     out["passed"] = out["keys"] > 0 and out["equal"] == out["keys"] and out["runs"] == out["runs_all_equal"]
+    out["tolerated"], out["mismatches"] = False, []
+    n_bad = out["keys"] - out["equal"]
+    if not out["passed"] and out["keys"] and n_bad <= max_fraction * out["keys"]:
+        mismatches = [r.asDict() for r in j.filter(F.col("verdict") != "equal").orderBy("run_acc", "genus").collect()]
+        if genus_gaps_tolerated(counts, mismatches, out["keys"], max_reads, max_fraction):
+            out["tolerated"], out["mismatches"] = True, mismatches
     return out
 
 
@@ -431,6 +459,7 @@ class ProfilePlan:
     depth_fail_below: int = 1000
     depth_low_below: int = 5000
     reflag_depth: bool = False                # apply new thresholds to stored runs (a deliberate change)
+    genus_gaps: dict[str, Any] | None = None  # tolerated PGMD remainder-row gaps → one inferred assertion
     params: dict[str, Any] = field(default_factory=dict)
 
 
@@ -522,6 +551,23 @@ async def _write_profile(irid: int, plan: ProfilePlan) -> dict[str, int]:
                         continue
                     db.add(Assertion(profile_id=profile_id, field=fld, value_text=val, tier="inferred",
                                      method=REFERENCE_METHOD, evidence=plan.reference, ingest_run_id=irid))
+                    counts["assertion.new"] += 1
+
+            if plan.genus_gaps is not None:
+                n = len(plan.genus_gaps["mismatches"])
+                text = (f"{n} (run, genus) cells where PGMD's Species rows sum 1-{GENUS_GAP_MAX_READS} reads short of "
+                        f"its Genus row (missing 'Genus;__' remainder rows)")
+                stored = (await db.execute(select(Assertion.value_text).where(
+                    Assertion.profile_id == profile_id, Assertion.method == GENUS_GAP_METHOD,
+                    Assertion.field == "pgmd_species_rollup_gap"))).scalars().all()
+                if stored and stored != [text]:
+                    raise Stop(f"stored genus-gap assertion differs: {stored} vs {text!r}")
+                if stored:
+                    counts["assertion.existing"] += 1
+                else:
+                    db.add(Assertion(profile_id=profile_id, field="pgmd_species_rollup_gap", value_text=text,
+                                     value_num=n, tier="inferred", method=GENUS_GAP_METHOD,
+                                     evidence=plan.genus_gaps, ingest_run_id=irid))
                     counts["assertion.new"] += 1
 
             await db.execute(update(IngestRun).where(IngestRun.ingest_run_id == irid).values(
@@ -680,10 +726,20 @@ def run_study(spark: "SparkSession", paths: Paths, src: Source, bioproject: str,
             f"features per run min {min(feats)} median {statistics.median(feats):.0f} max {max(feats)}")
 
         gt = genus_test(abundance, study)
+        verdict = "PASS" if gt["passed"] else (
+            f"PASS with {len(gt['mismatches'])} tolerated PGMD gaps (missing 'Genus;__' remainder rows, "
+            f"<= {GENUS_GAP_MAX_READS} reads each)" if gt["tolerated"] else "FAIL")
         log(f"genus test: (run, genus) keys {gt['keys']}: equal {gt['equal']} {gt['verdicts']}; "
-            f"runs where every genus matches: {gt['runs_all_equal']} of {gt['runs']} → {'PASS' if gt['passed'] else 'FAIL'}")
+            f"runs where every genus matches: {gt['runs_all_equal']} of {gt['runs']} → {verdict}")
         params["genus_test"] = {k: v for k, v in gt.items() if k != "examples"}
-        if not gt["passed"]:
+        gaps = None
+        if gt["tolerated"]:
+            for m in gt["mismatches"]:
+                log(f"  gap: {m}")
+            gaps = {"basis": "genus test, decided 2026-11-07", "max_reads": GENUS_GAP_MAX_READS,
+                    "max_key_fraction": GENUS_GAP_MAX_KEY_FRACTION, "keys": gt["keys"],
+                    "mismatches": gt["mismatches"]}
+        elif not gt["passed"]:
             for e in gt["examples"]:
                 log(f"  e.g. {e}")
             raise Stop("genus test failed: species do not roll up to PGMD's genus rows")
@@ -702,6 +758,8 @@ def run_study(spark: "SparkSession", paths: Paths, src: Source, bioproject: str,
         detail = {"runs": len(stats), "catalog_runs": len(pre["runs"]), "rows": problems["rows"],
                   "median_reads": statistics.median(reads), "depth": {k: flags.get(k, 0) for k in ("ok", "low", "fail")},
                   "reference": "GG 13_8" if ref_holds else "not asserted"}
+        if gaps:
+            detail["note"] = f"genus gaps tolerated: {len(gaps['mismatches'])} cells"
         if args.dry_run:
             log(f"dry run: feature_taxon {taxa.count()} rows, profile_abundance {abundance.count()} rows; nothing written")
             return StudyResult(bioproject, "dry-run ok", None, detail)
@@ -740,7 +798,7 @@ def run_study(spark: "SparkSession", paths: Paths, src: Source, bioproject: str,
                            runs=[{k: r[k] for k in ("run_acc", "n_reads", "n_features")} for r in stats],
                            reference={"basis": "lineage shape, design doc §2.1.1", **ref} if ref_holds else None,
                            depth_fail_below=settings.depth_fail_below, depth_low_below=settings.depth_low_below,
-                           reflag_depth=args.reflag_depth, params=params)
+                           reflag_depth=args.reflag_depth, genus_gaps=gaps, params=params)
         counts = asyncio.run(_write_profile(irid, plan))
         log(f"postgres: ingest_run {irid} committed: " + json.dumps(counts, sort_keys=True))
         print(asyncio.run(_depth_report(bioproject, args.group_by)), flush=True)
@@ -793,7 +851,7 @@ def summary(results: list[StudyResult]) -> str:
             r.bioproject, r.outcome, r.ingest_run_id or "", d.get("runs", ""), d.get("rows", ""),
             f"{d['median_reads']:.0f}" if "median_reads" in d else "",
             "/".join(str(dep.get(k, "")) for k in ("ok", "low", "fail")) if dep else "",
-            d.get("reference", ""), (d.get("reason") or "")[:160])))
+            d.get("reference", ""), (d.get("reason") or d.get("note") or "")[:160])))
     counts = Counter(r.outcome for r in results)
     lines.append("outcomes: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())) + f" (of {len(results)})")
     return "\n".join(lines)
