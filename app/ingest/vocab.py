@@ -17,6 +17,9 @@ GUT_SITE_TERMS: dict[str, tuple[str, str]] = {
     "jejunum": ("UBERON:0002115", "jejunum"),
     "duodenum": ("UBERON:0002114", "duodenum"),
     "stomach": ("UBERON:0000945", "stomach"),
+    # tests pooled over the intestinal regions sampled (duodenum to colon), e.g. PMC8001633 Tables 1-2
+    # (decided 2026-11-07). No words map here: a site word in metadata never becomes "intestine".
+    "intestine": ("UBERON:0000160", "intestine"),
 }
 _SITE_WORDS: dict[str, str] = {
     "feces": "feces", "faeces": "feces", "fecal": "feces", "faecal": "feces", "stool": "feces",

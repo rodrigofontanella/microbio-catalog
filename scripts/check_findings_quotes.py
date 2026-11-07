@@ -1,4 +1,5 @@
-"""Check a findings spec against the paper's full text, the study's design spec and the agreed rules.
+"""Check a findings spec against the paper's full text (quotes and table cells), the study's design spec and the
+agreed rules.
 
     python scripts/check_findings_quotes.py conf/findings/PRJNA667518.yml \\
         /home/fontanella/lab/raw/europepmc/20261011T090319Z/PMC8024495
@@ -33,13 +34,19 @@ def main(argv: list[str]) -> int:
         return ", ".join(f"{k} {v}" for k, v in sorted(Counter(key(c) for c in claims).items()))
 
     print(f"{len(claims)} claims, {len(spec.get('feature_sets', []))} feature sets, "
-          f"{len({c['quote'] for c in claims})} distinct quotes, {sum(bool(c.get('flags')) for c in claims)} flagged",
+          f"{len({c['quote'] for c in claims if c.get('quote')})} distinct quotes, "
+          f"{sum('table' in c for c in claims)} from table cells, {sum(bool(c.get('flags')) for c in claims)} flagged",
           file=sys.stderr)
-    print("about:     " + count(lambda c: next(iter(c["about"]))), file=sys.stderr)
+    print("about:     " + count(lambda c: next(iter(c.get("about") or {"host": 0}))), file=sys.stderr)
     print("contrast:  " + count(lambda c: c["contrast"]["kind"]), file=sys.stderr)
     print("direction: " + count(lambda c: c["direction"]), file=sys.stderr)
     print("measure:   " + count(lambda c: c["measure"]), file=sys.stderr)
-    print("stat:      " + count(lambda c: f"{c['stat']['scope']}/{c['stat']['source']}"), file=sys.stderr)
+    print("stat:      " + count(lambda c: f"{c['stat']['scope']}/{c['stat']['source']}" if c.get("stat") else "none"),
+          file=sys.stderr)
+    print("test:      " + count(lambda c: (c.get("test") or {}).get("name", "none")), file=sys.stderr)
+    print("evidence:  " + count(lambda c: "+".join(k for k in ("quote", "table") if c.get(k))), file=sys.stderr)
+    print(f"group values: {sum(len((c.get('group_values') or {}).get('levels') or {}) for c in claims)}",
+          file=sys.stderr)
     for c in claims:
         for fl in c.get("flags") or []:
             print(f"  FLAG {c['id']}: {fl.split(':')[0]}", file=sys.stderr)
