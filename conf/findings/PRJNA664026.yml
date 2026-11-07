@@ -1,0 +1,720 @@
+# Findings from PMC8001633 (Rabelo-Ruiz et al. 2021, Antibiotics 10:269, CC BY) for PRJNA664026 (study 2).
+# Loaded into core.finding / core.finding_level / core.finding_group_value (design doc §5.8) by
+# app.ingest.findings, as tier 'curated' only once signed below. Drafted by Claude 2026-11-07, for review.
+#
+#   python scripts/check_findings_quotes.py conf/findings/PRJNA664026.yml /home/fontanella/lab/raw/europepmc/20261017T120903Z/PMC8001633
+#   python -m app.ingest.findings conf/findings/PRJNA664026.yml --dry-run
+#
+# Rules from study 1 (2026-10-11), unchanged: store what the paper says and where it came from, never guess; nulls
+# are findings with their scope; omnibus stays omnibus, nothing is turned into pairs; no effect sizes from text.
+# Decided 2026-11-07 (Rodrigo; handoff-2026-11-07 §4a), migration 9dbf58ea10c0, loader 55066db:
+#   Q1  growth results are host-measure findings: no site, no 'about', an age window (days of life)
+#   Q2  'differs' for every significant omnibus test (it says the groups differ, not which way)
+#   Q2b the printed F / pseudo-F and d.f. are stored (test block); every number from a table is stated here
+#       AND must equal its cell (the loader checks p with its operator, statistic, d.f., means, spreads)
+#   Q2c p = 0.001 (PERMANOVA, 999 permutations) stored as printed, '=', with flag permutation_floor
+#   Q3  every diversity finding carries flag rarefaction_exclusion (fact paper-sample-exclusion); n_analysed is
+#       given only where the row's own d.f. give it, with the arithmetic
+#   Q4  Treatment pooled over the four regions (Tables 1-2) → site UBERON:0000160 (intestine); region,
+#       interaction, sex, room and covariate terms are NOT findings (facts analysis-model-*)
+#   Q6  Tables 1 and 4 means per treatment → group_values; spread_kind 'unstated' (fact ambiguity-table-spread)
+#   Q7  "marginally significant (p = 0.080)" → direction as stated, p as printed, flag authors_marginal
+#   Q8  pre-starter / starter claims (Supplementary Table S2, not in the JATS) → stored without a statistic,
+#       flagged; "intermediate values" is not stored (no test, no direction against one group)
+#   Q9  initial body weight (day 28, F printed "<0.01") → curation fact baseline-bw-balanced, not a finding
+# Not findings: class / genus percentages (§3.1, Figure 1: descriptive, no test); the PCoA sentences (§3.2: no
+# statistic, unclear scope → fact ambiguity-pcoa-treatment).
+#
+# Material: digesta for every microbiome finding ("approximately 100 mg of gut content were collected", §2.2).
+# Age: 70/70 for microbiome findings ("At the end of the experiment (70 days old)", §2.2 = fact sampling-age).
+# Test names from the Methods (§2.6), not the captions: alpha GLM, beta PERMANOVA, productive GLMM, post hoc LSD.
+#
+# Counts: 45 claims = whole gut 4 (Table 1-2) + per region 8 (Table 3) + alpha pairwise 16 (§3.1)
+#         + growth omnibus 6 (Table 4) + growth pairwise 7 (§3.3, Figure 4) + growth stages 4 (§3.3, Table S2);
+#         group values 2 × 3 (Table 1) + 6 × 3 (Table 4) = 24.
+
+bioproject: PRJNA664026
+pmcid: PMC8001633
+experiment: main
+review:
+  reviewed_by: Rodrigo Fontanella
+  reviewed_on: 07 nov 2026
+
+claims:
+  # ════ whole gut (Treatment term of the region × treatment models), d70 ═══════════════════════════════════
+  - id: a-gut-richness-treatment
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: &q_table1 "Taking into account the whole gut, species richness and Faith's diversity index differed significantly between treatments and between gut regions (Table 1)."
+    table: {label: Table 1, row: {Alpha Diversity Index: Species richness, Explanatory Variables: Treatment}}
+    site: UBERON:0000160          # intestine: duodenum, ileum, caecum, colon pooled
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Species richness}}
+    age: {from: 70, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: differs
+    test: {name: GLM, stat_kind: F, value: 4.03, df: [2, 61], stat_cell: F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.023, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 73, rule: "df_den + 12", why: "intercept + treatment 2 + gut region 3 + interaction 6"}
+    group_values:
+      spread_kind: unstated
+      flags: ["pooled_over_regions: mean over the analysed samples of all four regions", "spread_kind_unstated: ambiguity-table-spread"]
+      levels:
+        Control:        {cell: Control, mean: 311.75, spread: 27.38}
+        Allium extract: {cell: Allium Extract, mean: 243.77, spread: 18.71}
+        Antibiotic:     {cell: Antibiotic, mean: 294.14, spread: 41.60}
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)",
+            "samples_not_piglets: analysis-model-diversity (error d.f. 61 counts samples, up to 4 per piglet)"]
+
+  - id: a-gut-faith-treatment
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_table1
+    table: {label: Table 1, row: {Alpha Diversity Index: "Faith's diversity index", Explanatory Variables: Treatment}}
+    site: UBERON:0000160
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: "Faith's phylogenetic diversity"}}
+    age: {from: 70, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: differs
+    test: {name: GLM, stat_kind: F, value: 3.25, df: [2, 61], stat_cell: F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.046, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 73, rule: "df_den + 12", why: "intercept + treatment 2 + gut region 3 + interaction 6"}
+    group_values:
+      spread_kind: unstated
+      flags: ["pooled_over_regions: mean over the analysed samples of all four regions", "spread_kind_unstated: ambiguity-table-spread"]
+      levels:
+        Control:        {cell: Control, mean: 24.53, spread: 1.89}
+        Allium extract: {cell: Allium Extract, mean: 20.14, spread: 1.31}
+        Antibiotic:     {cell: Antibiotic, mean: 22.59, spread: 2.89}
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)",
+            "samples_not_piglets: analysis-model-diversity (error d.f. 61 counts samples, up to 4 per piglet)"]
+
+  - id: b-gut-unweighted-treatment
+    section: "3.2. Effects of Treatment and Gut Region on Beta Diversity"
+    quote: &q_table2 "However, Gut Region and Treatment had a significant effect on the intestinal microbiota of the piglets in both UniFrac indices (Table 2)."
+    table: {label: Table 2, row: {β-Diversity Distance Matrix: Unweighted UniFrac, Explanatory Variables: Treatment}}
+    site: UBERON:0000160
+    material: digesta
+    measure: beta_diversity
+    about: {feature: {kind: distance_metric, label: Unweighted UniFrac}}
+    age: {from: 70, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: differs
+    test: {name: PERMANOVA, stat_kind: pseudo_F, value: 1.84, df: [2, 61], stat_cell: Pseudo-F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.001, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 73, rule: "df_den + 12", why: "intercept + treatment 2 + gut region 3 + interaction 6"}
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)",
+            "samples_not_piglets: analysis-model-diversity (error d.f. 61 counts samples, up to 4 per piglet)",
+            "permutation_floor: 999 permutations (2.6. Statistics), so 0.001 is the smallest possible p",
+            "no_dispersion_test: absent-dispersion-test"]
+
+  - id: b-gut-weighted-treatment
+    section: "3.2. Effects of Treatment and Gut Region on Beta Diversity"
+    quote: *q_table2
+    table: {label: Table 2, row: {β-Diversity Distance Matrix: Weighted UniFrac, Explanatory Variables: Treatment}}
+    site: UBERON:0000160
+    material: digesta
+    measure: beta_diversity
+    about: {feature: {kind: distance_metric, label: Weighted UniFrac}}
+    age: {from: 70, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: differs
+    test: {name: PERMANOVA, stat_kind: pseudo_F, value: 2.35, df: [2, 61], stat_cell: Pseudo-F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.044, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 73, rule: "df_den + 12", why: "intercept + treatment 2 + gut region 3 + interaction 6"}
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)",
+            "samples_not_piglets: analysis-model-diversity (error d.f. 61 counts samples, up to 4 per piglet)",
+            "no_dispersion_test: absent-dispersion-test"]
+
+  # ════ beta diversity per region (one-way PERMANOVA, Table 3), d70 ════════════════════════════════════════
+  # n per region = error d.f. + 3. Weighted rows have a blank region cell in the table (found by fill-down).
+  - id: b-duo-unweighted
+    table: {label: Table 3, row: {col1: Duodenum, β-Diversity Distance Matrix: Unweighted UniFrac}}
+    site: UBERON:0002114
+    material: digesta
+    measure: beta_diversity
+    about: {feature: {kind: distance_metric, label: Unweighted UniFrac}}
+    age: {from: 70, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: no_difference
+    test: {name: PERMANOVA, stat_kind: pseudo_F, value: 1.23, df: [2, 16], stat_cell: Pseudo-F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.099, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 19, rule: "df_den + 3", why: "one-way: intercept + treatment 2"}
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)"]
+
+  - id: b-duo-weighted
+    table: {label: Table 3, row: {col1: Duodenum, β-Diversity Distance Matrix: Weighted UniFrac}}
+    site: UBERON:0002114
+    material: digesta
+    measure: beta_diversity
+    about: {feature: {kind: distance_metric, label: Weighted UniFrac}}
+    age: {from: 70, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: no_difference
+    test: {name: PERMANOVA, stat_kind: pseudo_F, value: 0.25, df: [2, 16], stat_cell: Pseudo-F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.977, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 19, rule: "df_den + 3", why: "one-way: intercept + treatment 2"}
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)"]
+
+  - id: b-ile-unweighted
+    table: {label: Table 3, row: {col1: Ileum, β-Diversity Distance Matrix: Unweighted UniFrac}}
+    site: UBERON:0002116
+    material: digesta
+    measure: beta_diversity
+    about: {feature: {kind: distance_metric, label: Unweighted UniFrac}}
+    age: {from: 70, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: no_difference
+    test: {name: PERMANOVA, stat_kind: pseudo_F, value: 0.93, df: [2, 15], stat_cell: Pseudo-F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.502, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 18, rule: "df_den + 3", why: "one-way: intercept + treatment 2"}
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)"]
+
+  - id: b-ile-weighted
+    table: {label: Table 3, row: {col1: Ileum, β-Diversity Distance Matrix: Weighted UniFrac}}
+    site: UBERON:0002116
+    material: digesta
+    measure: beta_diversity
+    about: {feature: {kind: distance_metric, label: Weighted UniFrac}}
+    age: {from: 70, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: no_difference
+    test: {name: PERMANOVA, stat_kind: pseudo_F, value: 1.08, df: [2, 15], stat_cell: Pseudo-F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.377, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 18, rule: "df_den + 3", why: "one-way: intercept + treatment 2"}
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)"]
+
+  - id: b-cae-unweighted
+    section: "3.2. Effects of Treatment and Gut Region on Beta Diversity"
+    quote: &q_table3 "When we studied the effect of Treatment within each gut region, significant differences appeared at the. caecum level with Unweighted UniFrac (Figure 3) and at the colon level with both Unweighted and Weighted UniFrac (Figure 3)."
+    table: {label: Table 3, row: {col1: Caecum, β-Diversity Distance Matrix: Unweighted UniFrac}}
+    site: UBERON:0001153
+    material: digesta
+    measure: beta_diversity
+    about: {feature: {kind: distance_metric, label: Unweighted UniFrac}}
+    age: {from: 70, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: differs
+    test: {name: PERMANOVA, stat_kind: pseudo_F, value: 1.56, df: [2, 15], stat_cell: Pseudo-F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.007, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 18, rule: "df_den + 3", why: "one-way: intercept + treatment 2"}
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)",
+            "no_dispersion_test: absent-dispersion-test"]
+
+  - id: b-cae-weighted
+    table: {label: Table 3, row: {col1: Caecum, β-Diversity Distance Matrix: Weighted UniFrac}}
+    site: UBERON:0001153
+    material: digesta
+    measure: beta_diversity
+    about: {feature: {kind: distance_metric, label: Weighted UniFrac}}
+    age: {from: 70, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: no_difference
+    test: {name: PERMANOVA, stat_kind: pseudo_F, value: 1.48, df: [2, 15], stat_cell: Pseudo-F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.191, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 18, rule: "df_den + 3", why: "one-way: intercept + treatment 2"}
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)"]
+
+  - id: b-col-unweighted
+    section: "3.2. Effects of Treatment and Gut Region on Beta Diversity"
+    quote: *q_table3
+    table: {label: Table 3, row: {col1: Colon, β-Diversity Distance Matrix: Unweighted UniFrac}}
+    site: UBERON:0001155
+    material: digesta
+    measure: beta_diversity
+    about: {feature: {kind: distance_metric, label: Unweighted UniFrac}}
+    age: {from: 70, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: differs
+    test: {name: PERMANOVA, stat_kind: pseudo_F, value: 1.55, df: [2, 15], stat_cell: Pseudo-F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.017, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 18, rule: "df_den + 3", why: "one-way: intercept + treatment 2"}
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)",
+            "no_dispersion_test: absent-dispersion-test"]
+
+  - id: b-col-weighted
+    section: "3.2. Effects of Treatment and Gut Region on Beta Diversity"
+    quote: *q_table3
+    table: {label: Table 3, row: {col1: Colon, β-Diversity Distance Matrix: Weighted UniFrac}}
+    site: UBERON:0001155
+    material: digesta
+    measure: beta_diversity
+    about: {feature: {kind: distance_metric, label: Weighted UniFrac}}
+    age: {from: 70, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: differs
+    test: {name: PERMANOVA, stat_kind: pseudo_F, value: 4.18, df: [2, 15], stat_cell: Pseudo-F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.009, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 18, rule: "df_den + 3", why: "one-way: intercept + treatment 2"}
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)",
+            "no_dispersion_test: absent-dispersion-test"]
+
+  # ════ alpha diversity pairwise per region (LSD post hoc, §3.1 text), d70 ══════════════════════════════════
+  - id: a-cae-richness-allium-control
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: &q_cae "Regarding alpha diversity indices, in caecum, Allium extract group showed lower values of Species richness and Faith's diversity index than Control group (LSD Posthoc test, p = 0.007; LSD Posthoc test, p = 0.034 respectively)."
+    site: UBERON:0001153
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Species richness}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Control}
+    direction: decrease
+    test: {name: LSD}
+    stat: {kind: p, op: "=", value: 0.007, scope: contrast, source: text}
+    figure: Figure 2A
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)"]
+
+  - id: a-cae-faith-allium-control
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_cae
+    site: UBERON:0001153
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: "Faith's phylogenetic diversity"}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Control}
+    direction: decrease
+    test: {name: LSD}
+    stat: {kind: p, op: "=", value: 0.034, scope: contrast, source: text}
+    figure: Figure 2B
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)"]
+
+  - id: a-col-richness-allium-antibiotic
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: &q_col "In colon, Allium extract group had lower values of Species richness and Faith's diversity index than antibiotic group (LSD Posthoc test, p = 0.008; LSD Posthoc test, p = 0.019 respectively)."
+    site: UBERON:0001155
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Species richness}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Antibiotic}
+    direction: decrease
+    test: {name: LSD}
+    stat: {kind: p, op: "=", value: 0.008, scope: contrast, source: text}
+    figure: Figure 2A
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)"]
+
+  - id: a-col-faith-allium-antibiotic
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_col
+    site: UBERON:0001155
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: "Faith's phylogenetic diversity"}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Antibiotic}
+    direction: decrease
+    test: {name: LSD}
+    stat: {kind: p, op: "=", value: 0.019, scope: contrast, source: text}
+    figure: Figure 2B
+    flags: ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)"]
+
+  # Nulls: one sentence covers 2 sites × 2 indices × every pair (3) = 12 rows; the p is a bound on all of them.
+  - id: a-duo-richness-allium-control-null
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: &q_null "However, no statistically significant differences appeared between treatments in duodenum and ileum in neither Species richness (LSD Posthoc test, p > 0.314) nor Faith's diversity index (LSD Posthoc test, p > 0.253)."
+    site: UBERON:0002114
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Species richness}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Control}
+    direction: no_difference
+    test: {name: LSD}
+    stat: &st_rich_null {kind: p, op: ">", value: 0.314, scope: contrast, source: text}
+    flags: &fl_div ["rarefaction_exclusion: paper-sample-exclusion (73 of 90 samples; Antibiotic <= 15 of 28)"]
+
+  - id: a-duo-richness-antibiotic-control-null
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_null
+    site: UBERON:0002114
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Species richness}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Antibiotic, reference: Control}
+    direction: no_difference
+    test: {name: LSD}
+    stat: *st_rich_null
+    flags: *fl_div
+
+  - id: a-duo-richness-allium-antibiotic-null
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_null
+    site: UBERON:0002114
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Species richness}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Antibiotic}
+    direction: no_difference
+    test: {name: LSD}
+    stat: *st_rich_null
+    flags: *fl_div
+
+  - id: a-duo-faith-allium-control-null
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_null
+    site: UBERON:0002114
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: "Faith's phylogenetic diversity"}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Control}
+    direction: no_difference
+    test: {name: LSD}
+    stat: &st_faith_null {kind: p, op: ">", value: 0.253, scope: contrast, source: text}
+    flags: *fl_div
+
+  - id: a-duo-faith-antibiotic-control-null
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_null
+    site: UBERON:0002114
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: "Faith's phylogenetic diversity"}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Antibiotic, reference: Control}
+    direction: no_difference
+    test: {name: LSD}
+    stat: *st_faith_null
+    flags: *fl_div
+
+  - id: a-duo-faith-allium-antibiotic-null
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_null
+    site: UBERON:0002114
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: "Faith's phylogenetic diversity"}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Antibiotic}
+    direction: no_difference
+    test: {name: LSD}
+    stat: *st_faith_null
+    flags: *fl_div
+
+  - id: a-ile-richness-allium-control-null
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_null
+    site: UBERON:0002116
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Species richness}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Control}
+    direction: no_difference
+    test: {name: LSD}
+    stat: *st_rich_null
+    flags: *fl_div
+
+  - id: a-ile-richness-antibiotic-control-null
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_null
+    site: UBERON:0002116
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Species richness}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Antibiotic, reference: Control}
+    direction: no_difference
+    test: {name: LSD}
+    stat: *st_rich_null
+    flags: *fl_div
+
+  - id: a-ile-richness-allium-antibiotic-null
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_null
+    site: UBERON:0002116
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Species richness}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Antibiotic}
+    direction: no_difference
+    test: {name: LSD}
+    stat: *st_rich_null
+    flags: *fl_div
+
+  - id: a-ile-faith-allium-control-null
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_null
+    site: UBERON:0002116
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: "Faith's phylogenetic diversity"}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Control}
+    direction: no_difference
+    test: {name: LSD}
+    stat: *st_faith_null
+    flags: *fl_div
+
+  - id: a-ile-faith-antibiotic-control-null
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_null
+    site: UBERON:0002116
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: "Faith's phylogenetic diversity"}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Antibiotic, reference: Control}
+    direction: no_difference
+    test: {name: LSD}
+    stat: *st_faith_null
+    flags: *fl_div
+
+  - id: a-ile-faith-allium-antibiotic-null
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: *q_null
+    site: UBERON:0002116
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: "Faith's phylogenetic diversity"}}
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Antibiotic}
+    direction: no_difference
+    test: {name: LSD}
+    stat: *st_faith_null
+    flags: *fl_div
+
+  # ════ growth: Treatment term of the GLMM per trait (Table 4), 24 pens ════════════════════════════════════
+  # n = error d.f. 18 + 6 (intercept, treatment 2, sex, room, initial BW). No rarefaction flag: all 24 pens.
+  - id: h-bw42-treatment
+    table: {label: Table 4, row: {Dependent Variable: "BW 42 days, kg", Independent Variables: Treatment}}
+    measure: body_weight
+    age: {from: 42, to: 42}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: differs
+    test: {name: GLMM, stat_kind: F, value: 5.69, df: [2, 18], stat_cell: F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.012, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 24, rule: "df_den + 6", why: "intercept + treatment 2 + sex + room + initial BW"}
+    group_values:
+      unit: kg
+      spread_kind: unstated
+      flags: &gv_t4 ["adjustment_not_stated: raw or initial-BW-adjusted means, not said", "spread_kind_unstated: ambiguity-table-spread"]
+      levels:
+        Control:        {cell: Control, mean: 10.50, spread: 0.49}
+        Allium extract: {cell: Allium Extract, mean: 10.87, spread: 0.57}
+        Antibiotic:     {cell: Antibiotic, mean: 11.40, spread: 0.55}
+
+  - id: h-bw70-treatment
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: "Body weight significantly differed between treatments at day 70 (Table 4; Supplementary material: Table S2)."
+    table: {label: Table 4, row: {Dependent Variable: "BW 70 days, kg", Independent Variables: Treatment}}
+    measure: body_weight
+    age: {from: 70, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: differs
+    test: {name: GLMM, stat_kind: F, value: 14.59, df: [2, 18], stat_cell: F, df_cell: D.f.}
+    stat: {kind: p, op: "<", value: 0.001, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 24, rule: "df_den + 6", why: "intercept + treatment 2 + sex + room + initial BW"}
+    group_values:
+      unit: kg
+      spread_kind: unstated
+      flags: *gv_t4
+      levels:
+        Control:        {cell: Control, mean: 21.01, spread: 0.76}
+        Allium extract: {cell: Allium Extract, mean: 22.79, spread: 0.98}
+        Antibiotic:     {cell: Antibiotic, mean: 23.76, spread: 0.92}
+    note: "Same Treatment F (14.59) as ADG 28-70: with initial BW as covariate, BW70 = BW28 + 42 × ADG makes the two tests identical except the covariate term (86.30 vs 26.13)."
+
+  - id: h-adg-treatment
+    table: {label: Table 4, row: {Dependent Variable: "ADG 28–70 days, g/d", Independent Variables: Treatment}}
+    measure: average_daily_gain
+    age: {from: 28, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: differs
+    test: {name: GLMM, stat_kind: F, value: 14.59, df: [2, 18], stat_cell: F, df_cell: D.f.}
+    stat: {kind: p, op: "<", value: 0.001, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 24, rule: "df_den + 6", why: "intercept + treatment 2 + sex + room + initial BW"}
+    group_values:
+      unit: g/d
+      spread_kind: unstated
+      flags: *gv_t4
+      levels:
+        Control:        {cell: Control, mean: 325.25, spread: 11.01}
+        Allium extract: {cell: Allium Extract, mean: 367.71, spread: 16.84}
+        Antibiotic:     {cell: Antibiotic, mean: 391.53, spread: 15.37}
+
+  - id: h-adfi-treatment-null
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: &q_adfi_mort "No differences were observed between treatments in average daily feed intake (ADFI) or mortality (Table 4; Supplementary material: Table S2)."
+    table: {label: Table 4, row: {Dependent Variable: "ADFI 28–70 days, g/d", Independent Variables: Treatment}}
+    measure: average_daily_feed_intake
+    age: {from: 28, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: no_difference
+    test: {name: GLMM, stat_kind: F, value: 0.49, df: [2, 18], stat_cell: F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.620, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 24, rule: "df_den + 6", why: "intercept + treatment 2 + sex + room + initial BW"}
+    group_values:
+      unit: g/d
+      spread_kind: unstated
+      flags: *gv_t4
+      levels:
+        Control:        {cell: Control, mean: 562.73, spread: 30.24}
+        Allium extract: {cell: Allium Extract, mean: 566.26, spread: 23.25}
+        Antibiotic:     {cell: Antibiotic, mean: 583.79, spread: 19.97}
+
+  - id: h-fcr-treatment
+    table: {label: Table 4, row: {Dependent Variable: "FCR 28–70 days, g/g", Independent Variables: Treatment}}
+    measure: feed_conversion_ratio
+    age: {from: 28, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: differs
+    test: {name: GLMM, stat_kind: F, value: 8.27, df: [2, 18], stat_cell: F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.003, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 24, rule: "df_den + 6", why: "intercept + treatment 2 + sex + room + initial BW"}
+    group_values:
+      unit: g/g
+      spread_kind: unstated
+      flags: *gv_t4
+      levels:
+        Control:        {cell: Control, mean: 1.73, spread: 0.06}
+        Allium extract: {cell: Allium Extract, mean: 1.55, spread: 0.06}
+        Antibiotic:     {cell: Antibiotic, mean: 1.50, spread: 0.04}
+
+  - id: h-mortality-treatment-null
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: *q_adfi_mort
+    table: {label: Table 4, row: {Dependent Variable: "Mortality 28–70 days, %", Independent Variables: Treatment}}
+    measure: mortality
+    age: {from: 28, to: 70}
+    contrast: {kind: omnibus, levels: [Control, Allium extract, Antibiotic]}
+    direction: no_difference
+    test: {name: GLMM, stat_kind: F, value: 0.90, df: [2, 18], stat_cell: F, df_cell: D.f.}
+    stat: {kind: p, op: "=", value: 0.423, scope: treatment, source: table, cell: p}
+    n_analysed: {value: 24, rule: "df_den + 6", why: "intercept + treatment 2 + sex + room + initial BW"}
+    group_values:
+      unit: "%"
+      spread_kind: unstated
+      flags: *gv_t4
+      levels:
+        Control:        {cell: Control, mean: 5.00, spread: 2.67}
+        Allium extract: {cell: Allium Extract, mean: 2.50, spread: 1.64}
+        Antibiotic:     {cell: Antibiotic, mean: 1.25, spread: 1.25}
+    flags: ["paper_error: error-mortality (Methods: no deaths detected; this row reports deaths)"]
+
+  # ════ growth pairwise, days 28-70 (§3.3 text; p from the Figure 4 legend) ════════════════════════════════
+  - id: h-bw70-antibiotic-control
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: &q_bw70 "Antibiotic and Allium extract fed piglets showed higher values of body weight than Control piglets (Table 4; Supplementary material: Table S2; Figure 4A)."
+    measure: body_weight
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Antibiotic, reference: Control}
+    direction: increase
+    test: {name: LSD}
+    stat: &st_fig4 {kind: p, op: "<", value: 0.05, scope: contrast, source: figure_legend,
+                    section: "3.3. Effects of Treatment on Piglets' Productive Parameters",
+                    quote: "Bars with different letter denote significant differences in treatment (LSD Posthoc test; p < 0.05)."}
+    figure: Figure 4A
+
+  - id: h-bw70-allium-control
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: *q_bw70
+    measure: body_weight
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Control}
+    direction: increase
+    test: {name: LSD}
+    stat: *st_fig4
+    figure: Figure 4A
+
+  - id: h-bw70-allium-antibiotic
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: "Allium extract group showed lower values of body weight than Antibiotic one, although this difference was marginally significant (LSD Posthoc test; p = 0.080)."
+    measure: body_weight
+    age: {from: 70, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Antibiotic}
+    direction: decrease
+    test: {name: LSD}
+    stat: {kind: p, op: "=", value: 0.080, scope: contrast, source: text}
+    flags: ["authors_marginal: the authors call p = 0.080 'marginally significant'; above 0.05"]
+
+  - id: h-adg-antibiotic-control
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: &q_global "Analyzing global stage (from 28 to 70 days), results showed that Antibiotic and Allium extract fed piglets significantly had higher ADG and lower FCR than Control piglets (Table 4; Supplementary material: Table S2; Figure 4B,C)."
+    measure: average_daily_gain
+    age: {from: 28, to: 70}
+    contrast: {kind: pairwise, treatment: Antibiotic, reference: Control}
+    direction: increase
+    test: {name: LSD}
+    stat: *st_fig4
+    figure: Figure 4B
+
+  - id: h-adg-allium-control
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: *q_global
+    measure: average_daily_gain
+    age: {from: 28, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Control}
+    direction: increase
+    test: {name: LSD}
+    stat: *st_fig4
+    figure: Figure 4B
+
+  - id: h-fcr-antibiotic-control
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: *q_global
+    measure: feed_conversion_ratio
+    age: {from: 28, to: 70}
+    contrast: {kind: pairwise, treatment: Antibiotic, reference: Control}
+    direction: decrease
+    test: {name: LSD}
+    stat: *st_fig4
+    figure: Figure 4C
+
+  - id: h-fcr-allium-control
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: *q_global
+    measure: feed_conversion_ratio
+    age: {from: 28, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Control}
+    direction: decrease
+    test: {name: LSD}
+    stat: *st_fig4
+    figure: Figure 4C
+
+  # ════ growth by stage (§3.3 text citing Supplementary Table S2, not in the JATS): no statistic ════════════
+  - id: h-adg-prestarter-antibiotic-control
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: &q_pre "During pre-starter stage (from 28 to 42 days), Antibiotic piglets had significantly more ADG and showed a better FCR than Control piglets, while Allium extract fed piglets showed intermediate values in both parameters."
+    measure: average_daily_gain
+    age: {from: 28, to: 42}
+    contrast: {kind: pairwise, treatment: Antibiotic, reference: Control}
+    direction: increase
+    flags: ["supplementary_table_s2: the statistic is in Supplementary Table S2, not in the full text"]
+
+  - id: h-fcr-prestarter-antibiotic-control
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: *q_pre
+    measure: feed_conversion_ratio
+    age: {from: 28, to: 42}
+    contrast: {kind: pairwise, treatment: Antibiotic, reference: Control}
+    direction: decrease
+    flags: ["supplementary_table_s2: the statistic is in Supplementary Table S2, not in the full text",
+            "direction_from_better: the text says 'better FCR'; FCR = ADFI / ADG (2.2), so better = lower",
+            "significance_unclear: 'significantly' may qualify ADG only"]
+
+  - id: h-adg-starter-antibiotic-control
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: &q_starter "During starter stage (from days 43 to 70) Antibiotic and Allium extract showed higher values of ADG than Control piglets (Supplementary material: Table S2)."
+    measure: average_daily_gain
+    age: {from: 43, to: 70}
+    contrast: {kind: pairwise, treatment: Antibiotic, reference: Control}
+    direction: increase
+    flags: ["supplementary_table_s2: the statistic is in Supplementary Table S2, not in the full text",
+            "significance_unclear: the sentence doesn't say 'significantly'"]
+
+  - id: h-adg-starter-allium-control
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: *q_starter
+    measure: average_daily_gain
+    age: {from: 43, to: 70}
+    contrast: {kind: pairwise, treatment: Allium extract, reference: Control}
+    direction: increase
+    flags: ["supplementary_table_s2: the statistic is in Supplementary Table S2, not in the full text",
+            "significance_unclear: the sentence doesn't say 'significantly'"]

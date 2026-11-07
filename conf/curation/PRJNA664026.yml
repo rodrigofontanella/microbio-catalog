@@ -10,13 +10,16 @@
 # are; the counts only corroborate: see 'sampled-one-per-pen'); room is a block that NCBI doesn't record per
 # piglet ('room-block-not-recorded'); sex is a nuisance factor of the design.
 # Review: read each fact against its quote, fix or delete what you disagree with, then sign.
+# Revision 2 (Claude, 2026-11-07): six facts added at the end (findings review, handoff-2026-11-07 §4a), the 45
+# facts above unchanged. Rodrigo's signature of 2026-10-17 covered those 45; it is cleared so this revision is
+# signed as a whole. Re-loading keeps the 45 stored assertions (matched on target, field and value) and adds 6.
 
 bioproject: PRJNA664026
 pmcid: PMC8001633
 method: paper_methods:PMC8001633
 review:
-  reviewed_by: Rodrigo Fontanella
-  reviewed_on: 2026-10-17
+  reviewed_by:
+  reviewed_on:
 
 facts:
   # ── who was sampled: corroborates the 24 parsed subjects without naming the key ─────────────
@@ -373,3 +376,53 @@ facts:
     value_text: "Methods: the first three PCoA axes were plotted; Figure 3 caption: the first two axes"
     section: 2.6. Statistics
     quote: "visualizations of the first three axes of the PCoA were plotted"
+
+  # ── added 2026-11-07 while drafting the findings (conf/findings/PRJNA664026.yml) ───────────────────
+  - id: ambiguity-pcoa-treatment
+    target: {document: true}
+    field: paper_ambiguity
+    value_text: "§3.2 says the PCoA showed differences 'when Gut Region, but not Treatment were taken into account', then 'Antibiotic samples grouped in a cluster separated from control and Allium extract samples'; no statistic for either, and the second follows the caecum/colon sentence, so it probably describes the large-intestine panels of Figure 3"
+    section: 3.2. Effects of Treatment and Gut Region on Beta Diversity
+    quote: "These differences were observed graphically in the Principal Coordinates Analysis (PCoA) when Gut Region, but not Treatment were taken into account (Figure 3)."
+    note: "Not stored as a finding (decided 2026-11-07): no test, unclear scope."
+
+  - id: error-table-caption-glm
+    target: {document: true}
+    field: paper_error
+    value_text: "Tables 2-4 are captioned 'General Linear Models': Tables 2-3 report PERMANOVA pseudo-F (Methods 2.6: PERMANOVA, 999 permutations) and Table 4 a mixed model with random factors (Methods 2.6: GLMM)"
+    section: 3.2. Effects of Treatment and Gut Region on Beta Diversity
+    quote: "General Linear Models exploring the effects of treatment, gut region, and their interaction in beta diversity indices"
+    note: "The findings take the test name from the Methods (PERMANOVA, GLMM), not the captions."
+
+  - id: ambiguity-df-format
+    target: {document: true}
+    field: paper_ambiguity
+    value_text: "degrees of freedom in Tables 1-4 are printed with a period between the two numbers ('2.61' = 2 and 61), so they read like decimals"
+    section: "3.1. Effects of Teatment on Piglets' Gut Bacterial Alpha Diversity"
+    quote: "The first number is the degree of freedom of the independent variable and the second one for the error term."
+    note: "The loader parses them as two integers (jats.parse_df) and requires the d.f. column by name."
+
+  - id: ambiguity-table-spread
+    target: {document: true}
+    field: paper_ambiguity
+    value_text: "Tables 1 and 4 print 'mean (x)' per treatment without saying whether x is the SE or the SD; Figures 2 and 4 plot 'Average ± standard error of the mean'"
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: "Average ± standard error of the mean of the Body Weight (BW) at 70 days of life"
+    note: "Group values from Tables 1 and 4 are stored with spread_kind 'unstated'. Compare arrive-8-animals-weight: 7.34 ± 0.89 kg in 2.1 vs 7.34 (0.35) in Table 4."
+
+  - id: absent-dispersion-test
+    target: {document: true}
+    field: dispersion_test
+    value_text: "not reported in PMC8001633: no test of multivariate dispersion (e.g. PERMDISP) beside the PERMANOVA"
+    absent:
+      sections: ["2.6. Statistics", "3.2. Effects of Treatment and Gut Region on Beta Diversity"]
+      patterns: ['PERMDISP', 'dispers', 'homogeneity']
+    note: "With Antibiotic cut to <= 15 low-depth samples (paper-sample-exclusion), a significant PERMANOVA Treatment term may reflect a difference in spread rather than location."
+
+  - id: baseline-bw-balanced
+    target: {experiment: main}
+    field: baseline_balance
+    value_text: "initial body weight (day 28) did not differ between treatments: 7.34 (0.35) / 7.34 (0.33) / 7.32 (0.37) kg (Control / Allium extract / Antibiotic); Treatment F printed '<0.01', d.f. 2,19, p 0.998 (Table 4)"
+    section: "3.3. Effects of Treatment on Piglets' Productive Parameters"
+    quote: "Initial BW (28 days), kg7.34 (0.35)7.34 (0.33)7.32 (0.37)Treatment<0.012.190.998"
+    note: "The quote is Table 4's first row as it appears in the section text (cells run together). A pre-treatment balance check, not a treatment effect: not a finding (decided 2026-11-07); its F has an operator, which no finding column holds."
