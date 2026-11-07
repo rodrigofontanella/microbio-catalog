@@ -146,3 +146,28 @@ def test_group_values():
     assert (by_level[201]["value"], by_level[201]["spread"], by_level[201]["spread_kind"], by_level[201]["unit"]) == (
         Decimal("325.25"), Decimal("11.01"), "unstated", "g/d")
     assert by_level[202]["evidence"]["cell"] == "Allium Extract"
+
+
+@pytest.mark.parametrize("signed_on, ok", [
+    (None, True),                          # unsigned: fine for a dry run (the load itself refuses it)
+    ("2026-11-07", False),                 # quoted: YAML keeps it text
+    ("07 nov 2026", False),                # what ingest_run 51 stored
+])
+def test_review_date_as_text_is_refused(jats, design, signed_on, ok):
+    spec = copy.deepcopy(SPEC)
+    spec["review"] = {"reviewed_by": "Rodrigo Fontanella" if signed_on else None, "reviewed_on": signed_on}
+    errors = check(spec, jats, design)
+    assert (not any("reviewed_on" in e for e in errors)) is ok, errors
+
+
+def test_review_date_as_yaml_reads_it():
+    from datetime import date, datetime
+    from app.ingest.findings import review_errors
+    assert yaml.safe_load("d: 2026-11-07")["d"] == date(2026, 11, 7)
+    assert review_errors({"reviewed_by": "Rodrigo Fontanella", "reviewed_on": date(2026, 11, 7)}) == []
+    assert isinstance(yaml.safe_load("d: 07 nov 2026")["d"], str)
+    assert review_errors({"reviewed_by": "R", "reviewed_on": "07 nov 2026"})
+    # a timestamp is a datetime, which Python counts as a date: refused anyway
+    ts = yaml.safe_load("d: 2026-11-07 10:00:00")["d"]
+    assert isinstance(ts, datetime) and review_errors({"reviewed_by": "R", "reviewed_on": ts})
+    assert review_errors({"reviewed_by": "  ", "reviewed_on": date(2026, 11, 7)}) == ["review.reviewed_by '  ' is not a name"]

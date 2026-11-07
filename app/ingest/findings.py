@@ -26,7 +26,7 @@ import json
 import re
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -137,9 +137,23 @@ def _num_errors(cid: str, what: str, cell: str | None, parse, want) -> list[str]
     return [] if got == want else [f"{cid}: {what} is {want} in the spec but the cell prints {cell!r}"]
 
 
+def review_errors(review: dict) -> list[str]:
+    """A signature, once filled in, is a person and a calendar date. YAML reads an unquoted 2026-11-07 as a date,
+    but '07 nov 2026' as text and '2026-11-07 10:00' as a timestamp; both would be stored as-is in every finding's
+    evidence (it happened: ingest_run 51, 2026-11-07). The curation loader refuses them via pydantic; so does this."""
+    errors = []
+    on, by = review.get("reviewed_on"), review.get("reviewed_by")
+    if on is not None and type(on) is not date:
+        errors.append(f"review.reviewed_on {on!r} is not a date: write it as YYYY-MM-DD, unquoted")
+    if by is not None and not (isinstance(by, str) and by.strip()):
+        errors.append(f"review.reviewed_by {by!r} is not a name")
+    return errors
+
+
 def check(spec: dict, jats: bytes, design: dict) -> list[str]:
     """Every rule of the findings spec (design doc §5.8). Empty list = loadable."""
     errors: list[str] = []
+    errors += review_errors(spec.get("review") or {})
     titles = {s.title for s in sections(jats)}
     tabs = tables(jats)
     levels = {lvl for f in design["factors"] if f["kind"] == "treatment" for lvl in f["levels"]}
