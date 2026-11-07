@@ -414,18 +414,35 @@ class StudyPublication(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
-# ── findings (migration 284f0d1b9c5d, design doc §5.8) ───────────────────────
+# ── findings (migrations 284f0d1b9c5d and 9dbf58ea10c0, design doc §5.8) ─────
 
 CONTRAST_KINDS = ("pairwise", "omnibus", "grouping")
-FEATURE_KINDS = ("genus", "otu", "enzyme", "alpha_index")
+SET_MEMBER_KINDS = ("genus", "otu", "enzyme", "alpha_index")         # core.feature_set: unchanged by 9dbf58ea10c0
+FEATURE_KINDS = SET_MEMBER_KINDS + ("distance_metric",)
 MATERIALS = ("digesta", "mucosa", "swab")
-MEASURES = ("relative_abundance", "alpha_diversity", "predicted_gene_count")
-DIRECTIONS = ("increase", "decrease", "no_difference", "counts")
+MICROBIOME_MEASURES = ("relative_abundance", "alpha_diversity", "beta_diversity", "predicted_gene_count")
+HOST_MEASURES = ("body_weight", "average_daily_gain", "average_daily_feed_intake", "feed_conversion_ratio",
+                 "mortality")
+MEASURES = MICROBIOME_MEASURES + HOST_MEASURES
+DIRECTIONS = ("increase", "decrease", "no_difference", "counts", "differs")
 STAT_KINDS = ("Q", "p")
 STAT_OPS = ("<", ">", "=", "<=", ">=")
 STAT_SCOPES = ("treatment", "contrast", "unknown")
-STAT_SOURCES = ("text", "figure_legend", "methods")
+STAT_SOURCES = ("text", "figure_legend", "methods", "table")
 LEVEL_ROLES = ("member", "higher", "lower")
+FEATURE_FITS_MEASURE = (("relative_abundance", "genus"), ("relative_abundance", "otu"),
+                        ("alpha_diversity", "alpha_index"), ("beta_diversity", "distance_metric"),
+                        ("predicted_gene_count", "enzyme"))
+TESTS = ("GLM", "GLMM", "PERMANOVA", "LSD")
+TEST_STAT_KINDS = ("F", "pseudo_F")
+STAT_FITS_TEST = (("GLM", "F"), ("GLMM", "F"), ("PERMANOVA", "pseudo_F"))
+VALUE_KINDS = ("mean",)
+SPREAD_KINDS = ("se", "sd", "unstated")
+_HOST = _in("measure", HOST_MEASURES)
+
+
+def _pairs_in(cols: str, pairs: tuple[tuple[str, str], ...]) -> str:
+    return f"({cols}) IN ({', '.join(f'({a!r}, {b!r})' for a, b in pairs)})"
 
 
 class FeatureSet(Base):
@@ -434,7 +451,7 @@ class FeatureSet(Base):
     __table_args__ = (
         UniqueConstraint("study_id", "local_id", name="feature_set_study_local_id_key"),
         UniqueConstraint("feature_set_id", "study_id", name="feature_set_id_study_key"),
-        CheckConstraint(_in("member_kind", FEATURE_KINDS), name="feature_set_member_kind_check"),
+        CheckConstraint(_in("member_kind", SET_MEMBER_KINDS), name="feature_set_member_kind_check"),
         CheckConstraint(f"material IS NULL OR {_in('material', MATERIALS)}", name="feature_set_material_check"),
         CheckConstraint("size IS NULL OR size > 0", name="feature_set_size_check"),
         {"schema": "core"},
@@ -482,7 +499,8 @@ class Finding(Base):
                         name="finding_treatment_not_reference"),
         CheckConstraint(f"material IS NULL OR {_in('material', MATERIALS)}", name="finding_material_check"),
         CheckConstraint(_in("measure", MEASURES), name="finding_measure_check"),
-        CheckConstraint("(feature_label IS NULL) <> (feature_set_id IS NULL)", name="finding_about_one"),
+        CheckConstraint(f"CASE WHEN {_HOST} THEN feature_label IS NULL AND feature_set_id IS NULL "
+                        f"ELSE (feature_label IS NULL) <> (feature_set_id IS NULL) END", name="finding_about_one"),
         CheckConstraint("(feature_kind IS NULL) = (feature_label IS NULL)", name="finding_feature_kind_pair"),
         CheckConstraint(f"feature_kind IS NULL OR {_in('feature_kind', FEATURE_KINDS)}",
                         name="finding_feature_kind_check"),
@@ -498,6 +516,27 @@ class Finding(Base):
         CheckConstraint(f"stat_source IS NULL OR {_in('stat_source', STAT_SOURCES)}",
                         name="finding_stat_source_check"),
         CheckConstraint("(effect_value IS NULL) = (effect_kind IS NULL)", name="finding_effect_pair"),
+        # 9dbf58ea10c0: measure class, age window, 'differs', test statistic
+        CheckConstraint(f"({_HOST}) = (site_term IS NULL)", name="finding_site_by_measure"),
+        CheckConstraint(f"NOT ({_HOST}) OR material IS NULL", name="finding_host_no_material"),
+        CheckConstraint(f"feature_kind IS NULL OR {_pairs_in('measure, feature_kind', FEATURE_FITS_MEASURE)}",
+                        name="finding_feature_fits_measure"),
+        CheckConstraint("(age_from_d IS NULL) = (age_to_d IS NULL)", name="finding_age_pair"),
+        CheckConstraint("age_from_d IS NULL OR (age_from_d >= 0 AND age_to_d >= age_from_d)", name="finding_age_order"),
+        CheckConstraint(f"NOT ({_HOST}) OR age_from_d IS NOT NULL", name="finding_host_needs_age"),
+        CheckConstraint("direction <> 'differs' OR contrast_kind = 'omnibus'", name="finding_differs_omnibus"),
+        CheckConstraint(f"test IS NULL OR {_in('test', TESTS)}", name="finding_test_check"),
+        CheckConstraint(f"test_stat_kind IS NULL OR {_in('test_stat_kind', TEST_STAT_KINDS)}",
+                        name="finding_test_stat_kind_check"),
+        CheckConstraint("(test_stat_kind IS NULL) = (test_stat_value IS NULL)", name="finding_test_stat_pair"),
+        CheckConstraint("test_stat_value IS NULL OR test_stat_value >= 0", name="finding_test_stat_nonneg"),
+        CheckConstraint("test IS NOT NULL OR (test_stat_kind IS NULL AND df_num IS NULL)",
+                        name="finding_test_stat_needs_test"),
+        CheckConstraint(f"test_stat_kind IS NULL OR {_pairs_in('test, test_stat_kind', STAT_FITS_TEST)}",
+                        name="finding_test_stat_fits_test"),
+        CheckConstraint("(df_num IS NULL) = (df_den IS NULL)", name="finding_df_pair"),
+        CheckConstraint("df_num IS NULL OR (df_num > 0 AND df_den > 0)", name="finding_df_positive"),
+        CheckConstraint("df_num IS NULL OR test_stat_kind IS NOT NULL", name="finding_df_needs_stat"),
         Index("finding_contrast_idx", "treatment_level_id", "reference_level_id"),
         Index("finding_feature_label_idx", "feature_label"),
         Index("finding_feature_set_idx", "feature_set_id"),
@@ -514,9 +553,11 @@ class Finding(Base):
     factor_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     treatment_level_id: Mapped[Optional[int]] = mapped_column(BigInteger)
     reference_level_id: Mapped[Optional[int]] = mapped_column(BigInteger)
-    site_term: Mapped[str] = mapped_column(Text, nullable=False)
+    site_term: Mapped[Optional[str]] = mapped_column(Text)           # NULL only for host measures
     material: Mapped[Optional[str]] = mapped_column(Text)
     measure: Mapped[str] = mapped_column(Text, nullable=False)
+    age_from_d: Mapped[Optional[int]] = mapped_column(Integer)       # required for host measures
+    age_to_d: Mapped[Optional[int]] = mapped_column(Integer)
     feature_kind: Mapped[Optional[str]] = mapped_column(Text)
     feature_label: Mapped[Optional[str]] = mapped_column(Text)
     feature_rank: Mapped[Optional[str]] = mapped_column(Text)
@@ -531,6 +572,11 @@ class Finding(Base):
     stat_value: Mapped[Optional[float]] = mapped_column(Numeric)
     stat_scope: Mapped[Optional[str]] = mapped_column(Text)
     stat_source: Mapped[Optional[str]] = mapped_column(Text)
+    test: Mapped[Optional[str]] = mapped_column(Text)                # GLM | GLMM | PERMANOVA | LSD
+    test_stat_kind: Mapped[Optional[str]] = mapped_column(Text)      # F | pseudo_F
+    test_stat_value: Mapped[Optional[float]] = mapped_column(Numeric)
+    df_num: Mapped[Optional[int]] = mapped_column(Integer)
+    df_den: Mapped[Optional[int]] = mapped_column(Integer)
     effect_kind: Mapped[Optional[str]] = mapped_column(Text)
     effect_value: Mapped[Optional[float]] = mapped_column(Numeric)
     effect_se: Mapped[Optional[float]] = mapped_column(Numeric)
@@ -560,6 +606,34 @@ class FindingLevel(Base):
     factor_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     role: Mapped[str] = mapped_column(Text, nullable=False)
     ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+
+
+class FindingGroupValue(Base):
+    """A group's printed mean (and spread) for one level of the finding's contrast (migration 9dbf58ea10c0)."""
+    __tablename__ = "finding_group_value"
+    __table_args__ = (
+        ForeignKeyConstraint(["finding_id", "level_id"], ["core.finding_level.finding_id",
+                                                          "core.finding_level.level_id"],
+                             name="finding_group_value_level_fk"),
+        CheckConstraint(_in("value_kind", VALUE_KINDS), name="finding_group_value_kind_check"),
+        CheckConstraint("(spread IS NULL) = (spread_kind IS NULL)", name="finding_group_value_spread_pair"),
+        CheckConstraint(f"spread_kind IS NULL OR {_in('spread_kind', SPREAD_KINDS)}",
+                        name="finding_group_value_spread_kind_check"),
+        CheckConstraint("spread IS NULL OR spread >= 0", name="finding_group_value_spread_nonneg"),
+        Index("finding_group_value_level_idx", "level_id"),
+        {"schema": "core"},
+    )
+
+    finding_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    level_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    value_kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[float] = mapped_column(Numeric, nullable=False)
+    spread: Mapped[Optional[float]] = mapped_column(Numeric)
+    spread_kind: Mapped[Optional[str]] = mapped_column(Text)
+    unit: Mapped[Optional[str]] = mapped_column(Text)
+    evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 # ── profiles: pointers into Delta (migration 10b35d7ad632, design doc §5.9) ────────────────────
