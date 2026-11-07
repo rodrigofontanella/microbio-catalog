@@ -2,6 +2,8 @@
 
     python -m app.lake.pgmd_profile --bioproject PRJNA667518 --dry-run
     python -m app.lake.pgmd_profile --bioproject PRJNA667518
+    python -m app.lake.pgmd_profile --all --dry-run        # every BioProject in bronze, one Spark session
+    python -m app.lake.pgmd_profile --all
 
 Order, and why:
 1. **Guards.** The study and its runs must be in the catalog. Microbial.csv in COLD_URI must match
@@ -34,6 +36,14 @@ no shuffle. Silver reads bronze with column pruning (~2M rows scanned, ~22k kept
 (one shuffle, 4 partitions, coalesced by AQE); each silver load is coalesced to one file. The genus test is two
 small aggregations and a full outer join (~18k keys). Nothing here should spill; if it does, the scratch dir is
 SPARK_LOCAL_DIR.
+
+--all (decided 2026-11-07): the sha256 and bronze once, then bronze pruned to the six columns the job reads and
+persisted (MEMORY_AND_DISK, ~2M rows), so each study filters memory instead of re-reading Silo. Every study keeps
+its own ingest run, Delta commits and Postgres transaction, exactly as a single run. A study whose guard fails
+(Stop) is recorded on its ingest run and skipped; one with no Species rows in bronze is skipped without an
+ingest run; any other error stops the batch. A summary table goes to stdout; exit 1 if any study failed.
+Runs PGMD profiled that are not core.run rows still stop that study (decided 2026-11-07): a profile never
+silently lacks runs.
 
 Delta on S3: one writer per table at a time. Run one instance of this job at a time.
 """
@@ -532,84 +542,119 @@ def log(msg: str) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="python -m app.lake.pgmd_profile", description=__doc__.splitlines()[0])
-    ap.add_argument("--bioproject", required=True, help="the study whose Species rows go to silver")
+    which = ap.add_mutually_exclusive_group(required=True)
+    which.add_argument("--bioproject", help="the study whose Species rows go to silver")
+    which.add_argument("--all", action="store_true",
+                       help="every BioProject in bronze, one Spark session; a failing study is recorded and skipped")
     ap.add_argument("--dry-run", action="store_true",
-                    help="every guard, transform and the genus test; no ingest run, no Delta or Postgres writes")
+                    help="every check, nothing written (no ingest run, no Delta commit, no Postgres rows)")
     ap.add_argument("--group-by", help="sample assertion field for the depth report, e.g. treatment")
     ap.add_argument("--reflag-depth", action="store_true",
-                    help="apply DEPTH_FAIL_BELOW / DEPTH_LOW_BELOW to stored runs that have other thresholds")
+                    help="apply the current DEPTH_* thresholds to stored runs that have other ones")
     return ap
 
 
-def run(argv: list[str] | None = None) -> int:
+# columns of bronze the job reads; --all caches only these (~2M rows), so 199 studies don't re-read Silo
+BRONZE_COLUMNS = ("BioProject", "level", "Runs", "specific_taxonomy", "microbial_name", "count")
+
+
+@dataclass
+class Source:
+    """What every study's load starts from: the file's sha256 and the bronze version holding it."""
+    sha256: str
+    bronze_version: int | None          # None only in a dry run before bronze exists
+    bronze: "DataFrame"                 # this release + sha256 only
+
+
+@dataclass
+class StudyResult:
+    bioproject: str
+    outcome: str                        # loaded | unchanged | dry-run ok | no species rows | failed
+    ingest_run_id: int | None = None
+    detail: dict[str, Any] = field(default_factory=dict)
+
+
+def verify_source(spark: "SparkSession", paths: Paths, params: dict) -> str:
+    """The CSV's sha256 (streamed in the JVM) against SHA256SUMS; nothing starts before it matches."""
+    want = expected_sha256(spark, paths.sums, CSV_NAME)
+    got = sha256_of(spark, paths.csv)
+    log(f"sha256 {CSV_NAME}: {got} ({'matches' if got == want else 'DOES NOT MATCH'} {SUMS_NAME})")
+    if got != want:
+        raise Stop(f"{paths.csv} sha256 {got} != {want} in {SUMS_NAME}: the source file changed")
+    params["sha256"] = got
+    return got
+
+
+def open_bronze(spark: "SparkSession", paths: Paths, args, got: str, irid: int | None, loaded_at: datetime,
+                params: dict) -> Source:
+    """Bronze for this release: loaded once per release (creating it needs an ingest run)."""
+    from pyspark.sql import functions as F
+    from app.ingest.pgmd_parse import SOURCE_RELEASE
+    found = one_commit(spark, paths.bronze, source_release=SOURCE_RELEASE)
+    if found and found[1].get("source_sha256") != got:
+        raise Stop(f"bronze already holds {SOURCE_RELEASE} with sha256 {found[1].get('source_sha256')}, "
+                   f"the file now has {got}: a changed source file is a new release, not a reload")
+    if found:
+        bronze_version = found[0]
+        log(f"bronze: {SOURCE_RELEASE} already loaded at version {bronze_version}; 0 rows added")
+        params["bronze"] = {"version": bronze_version, "added": 0}
+        bronze = spark.read.format("delta").option("versionAsOf", bronze_version).load(paths.bronze)
+    else:
+        check_header(spark, paths.csv)
+        raw = read_csv(spark, paths.csv)
+        stamped = stamp_bronze(raw, SOURCE_RELEASE, paths.csv, got, irid, loaded_at)
+        if args.dry_run:
+            bronze_version, bronze = None, stamped
+            log("bronze: not loaded yet (dry run reads the CSV directly)")
+        elif irid is None:
+            raise Stop("bronze is not loaded yet: load one study with --bioproject first (bronze is written "
+                       "under that study's ingest run)")
+        else:
+            created = ensure_table(spark, paths.bronze, bronze_schema())
+            n_csv = raw.count()
+            append(stamped, paths.bronze, {"source_release": SOURCE_RELEASE, "source_sha256": got,
+                                           "ingest_run_id": irid, "rows": n_csv})
+            bronze_version = one_commit(spark, paths.bronze, source_release=SOURCE_RELEASE)[0]
+            bronze = spark.read.format("delta").option("versionAsOf", bronze_version).load(paths.bronze)
+            n_stored = bronze.filter(F.col("_source_sha256") == got).count()
+            log(f"bronze: {'created, ' if created else ''}{n_csv} CSV rows → {n_stored} rows at version {bronze_version}")
+            if n_stored != n_csv:
+                raise Stop(f"bronze holds {n_stored} rows for this file, the CSV has {n_csv}")
+            params["bronze"] = {"version": bronze_version, "added": n_stored}
+    bronze = bronze.filter((F.col("_source_release") == SOURCE_RELEASE) & (F.col("_source_sha256") == got))
+    return Source(sha256=got, bronze_version=bronze_version, bronze=bronze)
+
+
+def run_study(spark: "SparkSession", paths: Paths, src: Source, bioproject: str, args, *,
+              pre: dict[str, Any] | None = None, irid: int | None = None,
+              params: dict[str, Any] | None = None) -> StudyResult:
+    """One study's silver rows and profile. Starts its own ingest run unless given one (or a dry run).
+    A guard that fails (Stop) is recorded on the ingest run and returned as 'failed'; anything else re-raises."""
     from pyspark.sql import functions as F
     from app.ingest.ncbi_study import code_version
     from app.ingest.pgmd_parse import SOURCE_RELEASE
-    from app.lake.spark import build_spark
-
-    args = build_parser().parse_args(argv)
-    bioproject = args.bioproject.strip().upper()
-    paths = Paths.from_settings(settings)
     key = profile_key(SOURCE_RELEASE, bioproject)
     loaded_at = datetime.now(timezone.utc).replace(microsecond=0)
-
-    pre = asyncio.run(_preflight(bioproject, key))
-    if pre["study_id"] is None or not pre["runs"]:
-        log(f"ERROR {bioproject}: not in core.study, or no core.run rows; load the study first")
-        return 1
-    log(f"catalog: {bioproject} study_id {pre['study_id']}, {len(pre['runs'])} runs; "
-        f"profile {'exists: ' + str(pre['profile_id']) if pre['profile_id'] else 'not yet loaded'}")
-
-    spark = build_spark("pgmd-profile")
-    params: dict[str, Any] = {"bioproject": bioproject, "profile_key": key, "source_uri": paths.csv,
-                              "tables": {"bronze": paths.bronze, "feature_taxon": paths.feature_taxon,
-                                         "profile_abundance": paths.profile_abundance},
-                              "dry_run": args.dry_run, **code_version()}
-    irid: int | None = None
+    if pre is None:
+        pre = asyncio.run(_preflight(bioproject, key))
+        if pre["study_id"] is None or not pre["runs"]:
+            log(f"ERROR {bioproject}: not in core.study, or no core.run rows; load the study first")
+            return StudyResult(bioproject, "failed", None, {"reason": "not in core.study, or no core.run rows"})
+        log(f"catalog: {bioproject} study_id {pre['study_id']}, {len(pre['runs'])} runs; "
+            f"profile {'exists: ' + str(pre['profile_id']) if pre['profile_id'] else 'not yet loaded'}")
+    if params is None:
+        params = {"bioproject": bioproject, "profile_key": key, "source_uri": paths.csv,
+                  "tables": {"bronze": paths.bronze, "feature_taxon": paths.feature_taxon,
+                             "profile_abundance": paths.profile_abundance},
+                  "dry_run": args.dry_run, "batch": bool(getattr(args, "all", False)), "sha256": src.sha256,
+                  "bronze": {"version": src.bronze_version, "added": 0}, **code_version()}
+    got, bronze_version = src.sha256, src.bronze_version
     try:
-        want = expected_sha256(spark, paths.sums, CSV_NAME)
-        got = sha256_of(spark, paths.csv)
-        log(f"sha256 {CSV_NAME}: {got} ({'matches' if got == want else 'DOES NOT MATCH'} {SUMS_NAME})")
-        if got != want:
-            raise Stop(f"{paths.csv} sha256 {got} != {want} in {SUMS_NAME}: the source file changed")
-        params["sha256"] = got
-
-        if not args.dry_run:
+        if irid is None and not args.dry_run:
             irid = asyncio.run(_start_ingest_run(SOURCE_RELEASE, paths.csv, params))
             log(f"ingest_run {irid} started")
 
-        # ── bronze: the whole file, once per release ──
-        found = one_commit(spark, paths.bronze, source_release=SOURCE_RELEASE)
-        if found and found[1].get("source_sha256") != got:
-            raise Stop(f"bronze already holds {SOURCE_RELEASE} with sha256 {found[1].get('source_sha256')}, "
-                       f"the file now has {got}: a changed source file is a new release, not a reload")
-        if found:
-            bronze_version = found[0]
-            log(f"bronze: {SOURCE_RELEASE} already loaded at version {bronze_version}; 0 rows added")
-            params["bronze"] = {"version": bronze_version, "added": 0}
-            bronze = spark.read.format("delta").option("versionAsOf", bronze_version).load(paths.bronze)
-        else:
-            check_header(spark, paths.csv)
-            raw = read_csv(spark, paths.csv)
-            stamped = stamp_bronze(raw, SOURCE_RELEASE, paths.csv, got, irid, loaded_at)
-            if args.dry_run:
-                bronze_version, bronze = None, stamped
-                log("bronze: not loaded yet (dry run reads the CSV directly)")
-            else:
-                created = ensure_table(spark, paths.bronze, bronze_schema())
-                n_csv = raw.count()
-                append(stamped, paths.bronze, {"source_release": SOURCE_RELEASE, "source_sha256": got,
-                                               "ingest_run_id": irid, "rows": n_csv})
-                bronze_version = one_commit(spark, paths.bronze, source_release=SOURCE_RELEASE)[0]
-                bronze = spark.read.format("delta").option("versionAsOf", bronze_version).load(paths.bronze)
-                n_stored = bronze.filter(F.col("_source_sha256") == got).count()
-                log(f"bronze: {'created, ' if created else ''}{n_csv} CSV rows → {n_stored} rows at version {bronze_version}")
-                if n_stored != n_csv:
-                    raise Stop(f"bronze holds {n_stored} rows for this file, the CSV has {n_csv}")
-                params["bronze"] = {"version": bronze_version, "added": n_stored}
-        bronze = bronze.filter((F.col("_source_release") == SOURCE_RELEASE) & (F.col("_source_sha256") == got))
-
-        study = bronze.filter(F.trim("BioProject") == bioproject).cache()
+        study = src.bronze.filter(F.trim("BioProject") == bioproject).cache()
         levels = level_counts(study)
         log(f"bronze rows for {bioproject}: {sum(levels.values())}  " + "  ".join(
             f"{lv} {levels.get(lv, 0)}" for lv in lin.LEVEL_SEGMENTS))
@@ -654,12 +699,15 @@ def run(argv: list[str] | None = None) -> int:
         log(f"depth (fail < {settings.depth_fail_below}, low < {settings.depth_low_below}): "
             + " ".join(f"{k} {flags.get(k, 0)}" for k in ("ok", "low", "fail"))
             + f"; not profiled {len(pre['runs']) - len(stats)} of {len(pre['runs'])} catalog runs")
+        detail = {"runs": len(stats), "catalog_runs": len(pre["runs"]), "rows": problems["rows"],
+                  "median_reads": statistics.median(reads), "depth": {k: flags.get(k, 0) for k in ("ok", "low", "fail")},
+                  "reference": "GG 13_8" if ref_holds else "not asserted"}
         if args.dry_run:
             log(f"dry run: feature_taxon {taxa.count()} rows, profile_abundance {abundance.count()} rows; nothing written")
-            return 0
+            return StudyResult(bioproject, "dry-run ok", None, detail)
 
         # ── silver writes (feature_taxon first, then the abundance commit that core.profile points at) ──
-        versions = {}
+        versions, added = {}, 0
         for name, uri, df, schema, cols in (
                 ("feature_taxon", paths.feature_taxon, taxa, taxon_schema(), ["feature_id", *lin.RANKS, "external_label"]),
                 ("profile_abundance", paths.profile_abundance, abundance, abundance_schema(), ["run_acc", "feature_id", "count"])):
@@ -681,6 +729,7 @@ def run(argv: list[str] | None = None) -> int:
                 append(df, uri, {"profile_key": key, "source_sha256": got, "bronze_version": bronze_version,
                                  "ingest_run_id": irid, "rows": n}, files=1)
                 versions[name] = one_commit(spark, uri, profile_key=key)[0]
+                added += n
                 log(f"{name}: {'created, ' if created else ''}{n} rows at version {versions[name]}")
         params["delta_versions"] = versions
 
@@ -695,14 +744,124 @@ def run(argv: list[str] | None = None) -> int:
         counts = asyncio.run(_write_profile(irid, plan))
         log(f"postgres: ingest_run {irid} committed: " + json.dumps(counts, sort_keys=True))
         print(asyncio.run(_depth_report(bioproject, args.group_by)), flush=True)
-        return 0
+        changed = added or counts["profile.new"] or counts["profile_run.new"] or counts["assertion.new"] \
+            or counts["profile_run.depth_filled"] or counts["profile_run.depth_reflagged"]
+        detail.update(profile_id=counts["profile_id"], delta_versions=versions)
+        return StudyResult(bioproject, "loaded" if changed else "unchanged", irid, detail)
+    except Stop as e:
+        log(f"ERROR {e}")
+        if irid is not None:
+            asyncio.run(_record_failure(irid, params, str(e)))
+            log(f"ingest_run {irid} recorded as failed (finished_at NULL)")
+        return StudyResult(bioproject, "failed", irid, {"reason": str(e)})
+    except Exception as e:      # a crash after the ingest run started is still recorded, then re-raised
+        if irid is not None:
+            asyncio.run(_record_failure(irid, params, f"{type(e).__name__}: {e}"[:2000]))
+            log(f"ingest_run {irid} recorded as failed (finished_at NULL)")
+        raise
+    finally:
+        try:
+            study.unpersist()
+            abundance.unpersist()
+        except NameError:
+            pass
+
+
+def run_batch(per_study: dict[str, tuple[int, int]], load) -> list[StudyResult]:
+    """--all's loop, without Spark: per_study = BioProject → (bronze rows, Species rows); load(bp) → StudyResult.
+    No Species rows → skipped without calling load (no ingest run). A failed study is kept and the loop goes on;
+    an exception from load (not a guard) propagates and stops the batch."""
+    results = []
+    for i, bp in enumerate(sorted(per_study), 1):
+        log(f"── {bp} ({i}/{len(per_study)}) " + "─" * 40)
+        rows, species = per_study[bp]
+        if not species:
+            log(f"{bp}: {rows} bronze rows, none at {LEVEL}: nothing to load (no ingest run)")
+            results.append(StudyResult(bp, "no species rows", None, {"rows": 0}))
+            continue
+        results.append(load(bp))
+    return results
+
+
+def summary(results: list[StudyResult]) -> str:
+    """One line per study, failures with their reason, then the outcome counts."""
+    lines = ["bioproject\toutcome\tingest_run\truns\trows\tmedian_reads\tok/low/fail\treference\treason"]
+    for r in results:
+        d = r.detail
+        dep = d.get("depth") or {}
+        lines.append("\t".join(str(x) for x in (
+            r.bioproject, r.outcome, r.ingest_run_id or "", d.get("runs", ""), d.get("rows", ""),
+            f"{d['median_reads']:.0f}" if "median_reads" in d else "",
+            "/".join(str(dep.get(k, "")) for k in ("ok", "low", "fail")) if dep else "",
+            d.get("reference", ""), (d.get("reason") or "")[:160])))
+    counts = Counter(r.outcome for r in results)
+    lines.append("outcomes: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())) + f" (of {len(results)})")
+    return "\n".join(lines)
+
+
+def run(argv: list[str] | None = None) -> int:
+    from pyspark import StorageLevel
+    from pyspark.sql import functions as F
+    from app.ingest.ncbi_study import code_version
+    from app.ingest.pgmd_parse import SOURCE_RELEASE
+    from app.lake.spark import build_spark
+
+    args = build_parser().parse_args(argv)
+    paths = Paths.from_settings(settings)
+    loaded_at = datetime.now(timezone.utc).replace(microsecond=0)
+
+    if args.all:
+        spark = build_spark("pgmd-profile-all")
+        try:
+            src = open_bronze(spark, paths, args, verify_source(spark, paths, {}), None, loaded_at, {})
+            # Prune to the columns the job reads and keep them for every study: one scan of Silo, not one per study.
+            # ~2M rows of 6 strings; MEMORY_AND_DISK spills to SPARK_LOCAL_DIR if the 2 GB driver runs short.
+            cached = src.bronze.select(*BRONZE_COLUMNS).persist(StorageLevel.MEMORY_AND_DISK)
+            per_study = {r["bp"]: (r["rows"], r["species"]) for r in cached.groupBy(F.trim("BioProject").alias("bp")).agg(
+                F.count(F.lit(1)).alias("rows"),
+                F.sum(F.when(F.col("level") == LEVEL, 1).otherwise(0)).alias("species")).collect()}
+            log(f"bronze: {sum(n for n, _ in per_study.values())} rows cached for {len(per_study)} BioProjects")
+            src = Source(src.sha256, src.bronze_version, cached)
+            results = run_batch(per_study, lambda bp: run_study(spark, paths, src, bp, args))
+            cached.unpersist()
+            print(summary(results), flush=True)
+            return 1 if any(r.outcome == "failed" for r in results) else 0
+        except Stop as e:
+            log(f"ERROR {e}")
+            return 1
+        finally:
+            spark.stop()
+
+    # one study: the order of the original job (the ingest run exists before bronze, which may be created under it)
+    bioproject = args.bioproject.strip().upper()
+    key = profile_key(SOURCE_RELEASE, bioproject)
+    pre = asyncio.run(_preflight(bioproject, key))
+    if pre["study_id"] is None or not pre["runs"]:
+        log(f"ERROR {bioproject}: not in core.study, or no core.run rows; load the study first")
+        return 1
+    log(f"catalog: {bioproject} study_id {pre['study_id']}, {len(pre['runs'])} runs; "
+        f"profile {'exists: ' + str(pre['profile_id']) if pre['profile_id'] else 'not yet loaded'}")
+    spark = build_spark("pgmd-profile")
+    params: dict[str, Any] = {"bioproject": bioproject, "profile_key": key, "source_uri": paths.csv,
+                              "tables": {"bronze": paths.bronze, "feature_taxon": paths.feature_taxon,
+                                         "profile_abundance": paths.profile_abundance},
+                              "dry_run": args.dry_run, "batch": False, **code_version()}
+    irid: int | None = None
+    try:
+        got = verify_source(spark, paths, params)
+        if not args.dry_run:
+            irid = asyncio.run(_start_ingest_run(SOURCE_RELEASE, paths.csv, params))
+            log(f"ingest_run {irid} started")
+        src = open_bronze(spark, paths, args, got, irid, loaded_at, params)
+        result = run_study(spark, paths, src, bioproject, args, pre=pre, irid=irid, params=params)
+        return 0 if result.outcome != "failed" else 1
     except Stop as e:
         log(f"ERROR {e}")
         if irid is not None:
             asyncio.run(_record_failure(irid, params, str(e)))
             log(f"ingest_run {irid} recorded as failed (finished_at NULL)")
         return 1
-    except Exception as e:      # a crash after the ingest run started is still recorded, then re-raised
+    except Exception as e:
         if irid is not None:
             asyncio.run(_record_failure(irid, params, f"{type(e).__name__}: {e}"[:2000]))
             log(f"ingest_run {irid} recorded as failed (finished_at NULL)")
