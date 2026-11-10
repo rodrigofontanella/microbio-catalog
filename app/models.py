@@ -1,6 +1,6 @@
 # app/models.py
 from sqlalchemy import Text, ForeignKey, ForeignKeyConstraint, Identity, CheckConstraint, text, UniqueConstraint, Index, Boolean, false, Computed
-from sqlalchemy.dialects.postgresql import JSONB, ENUM
+from sqlalchemy.dialects.postgresql import JSONB, ENUM, DOUBLE_PRECISION
 from sqlalchemy import String, Integer, BigInteger, Numeric, Date, DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -475,6 +475,7 @@ class Finding(Base):
     __tablename__ = "finding"
     __table_args__ = (
         UniqueConstraint("study_id", "local_id", name="finding_study_local_id_key"),
+        UniqueConstraint("finding_id", "study_id", name="finding_id_study_key"),   # target of finding_check's FK
         UniqueConstraint("finding_id", "factor_id", name="finding_id_factor_key"),
         ForeignKeyConstraint(["experiment_id", "study_id"], ["core.experiment.experiment_id",
                                                              "core.experiment.study_id"],
@@ -715,5 +716,78 @@ class ProfileRun(Base):
     depth_fail_below: Mapped[Optional[int]] = mapped_column(Integer)
     depth_low_below: Mapped[Optional[int]] = mapped_column(Integer)
     depth_status: Mapped[Optional[str]] = mapped_column(Text, Computed(DEPTH_STATUS_SQL, persisted=True))
+    ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+# ── finding checks (migration 6c1f0e2a9b47, design doc §5.8.3) ─────────────────────────────────────────────
+
+CHECK_SCENARIOS = ("all", "no_fail", "ok_only")
+CHECK_ROLES = ("verdict", "also")
+CHECK_TESTED_VERDICTS = ("reproduced", "direction_only", "opposite_ns", "contradicted", "no_direction",
+                         "consistent_null", "no_verdict")
+CHECK_VERDICTS = CHECK_TESTED_VERDICTS + ("not_testable", "n_a", "same_as_all")
+CHECK_DIRECTIONS = ("increase", "decrease", "none")
+
+
+class FindingCheck(Base):
+    """A finding tested against a profile of the same study (app.ingest.finding_checks), tier 'derived'.
+    One row per finding x profile x depth scenario x lineage; a missing row never means 'not run'."""
+    __tablename__ = "finding_check"
+    __table_args__ = (
+        ForeignKeyConstraint(["finding_id", "study_id"], ["core.finding.finding_id", "core.finding.study_id"],
+                             name="finding_check_finding_fk"),
+        ForeignKeyConstraint(["profile_id", "study_id"], ["core.profile.profile_id", "core.profile.study_id"],
+                             name="finding_check_profile_fk"),
+        UniqueConstraint("finding_id", "profile_id", "scenario", "role", "unit", name="finding_check_key",
+                         postgresql_nulls_not_distinct=True),
+        CheckConstraint(_in("scenario", CHECK_SCENARIOS), name="finding_check_scenario_check"),
+        CheckConstraint(_in("role", CHECK_ROLES), name="finding_check_role_check"),
+        CheckConstraint(_in("verdict", CHECK_VERDICTS), name="finding_check_verdict_check"),
+        CheckConstraint(f"direction IS NULL OR {_in('direction', CHECK_DIRECTIONS)}",
+                        name="finding_check_direction_check"),
+        CheckConstraint("(p IS NULL) = (q IS NULL)", name="finding_check_p_q_pair"),
+        CheckConstraint("p IS NULL OR (p >= 0 AND p <= 1 AND q >= 0 AND q <= 1)", name="finding_check_p_q_range"),
+        CheckConstraint("(direction IS NULL) = (q IS NULL)", name="finding_check_direction_pair"),
+        CheckConstraint(f"({_in('verdict', CHECK_TESTED_VERDICTS)}) = (q IS NOT NULL)",
+                        name="finding_check_tested_has_q"),
+        CheckConstraint("role = 'also' OR verdict <> 'no_verdict'", name="finding_check_verdict_role"),
+        CheckConstraint("role = 'verdict' OR verdict IN ('no_verdict', 'not_testable', 'n_a', 'same_as_all')",
+                        name="finding_check_also_no_verdict"),
+        CheckConstraint("scenario <> 'all' OR verdict NOT IN ('n_a', 'same_as_all')",
+                        name="finding_check_sensitivity_only"),
+        CheckConstraint("unit IS NOT NULL OR (role = 'verdict' AND verdict = 'not_testable')",
+                        name="finding_check_unit"),
+        CheckConstraint("verdict <> 'not_testable' OR reason IS NOT NULL", name="finding_check_reason"),
+        CheckConstraint("num_nonnulls(n_t, n_r, present_t, present_r, median_t, median_r) IN (0, 6)",
+                        name="finding_check_counts_complete"),
+        CheckConstraint("n_t IS NULL OR (present_t BETWEEN 0 AND n_t AND present_r BETWEEN 0 AND n_r)",
+                        name="finding_check_counts_order"),
+        CheckConstraint("q IS NULL OR n_t IS NOT NULL", name="finding_check_tested_has_counts"),
+        Index("finding_check_profile_idx", "profile_id"),
+        {"schema": "core"},
+    )
+
+    finding_check_id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    finding_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    study_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    profile_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    scenario: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False)
+    unit: Mapped[Optional[str]] = mapped_column(Text)               # lineage prefix; NULL = the map's not_testable
+    verdict: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+    n_t: Mapped[Optional[int]] = mapped_column(Integer)
+    n_r: Mapped[Optional[int]] = mapped_column(Integer)
+    present_t: Mapped[Optional[int]] = mapped_column(Integer)
+    present_r: Mapped[Optional[int]] = mapped_column(Integer)
+    median_t: Mapped[Optional[float]] = mapped_column(DOUBLE_PRECISION)
+    median_r: Mapped[Optional[float]] = mapped_column(DOUBLE_PRECISION)
+    direction: Mapped[Optional[str]] = mapped_column(Text)
+    p: Mapped[Optional[float]] = mapped_column(DOUBLE_PRECISION)
+    q: Mapped[Optional[float]] = mapped_column(DOUBLE_PRECISION)
+    tier: Mapped[str] = mapped_column(EVIDENCE_TIER, nullable=False)
+    method: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     ingest_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prov.ingest_run.ingest_run_id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

@@ -133,6 +133,7 @@ class Claim:
     treatment: str                  # level labels of a pairwise contrast
     reference: str
     paper_stat: str = ""            # e.g. 'Q < 0.05', as stored
+    finding_id: int | None = None   # core.finding row (None in tests)
 
 
 @dataclass(frozen=True)
@@ -455,7 +456,7 @@ def markdown(rows: list[Row], families: list[Family], header: dict[str, Any], si
 # ── I/O: Postgres (read only) and Delta ───────────────────────────────────────────────────────────────────
 
 CLAIMS_SQL = """
-SELECT f.local_id, f.feature_kind, f.feature_label, f.site_term, f.direction, f.contrast_kind, f.factor_id,
+SELECT f.finding_id, f.local_id, f.feature_kind, f.feature_label, f.site_term, f.direction, f.contrast_kind, f.factor_id,
        tl.label AS treatment, rl.label AS reference, f.stat_kind, f.stat_op, f.stat_value
 FROM core.finding f
 LEFT JOIN core.factor_level tl ON tl.level_id = f.treatment_level_id
@@ -507,7 +508,7 @@ async def load_catalog(db, spec: MatchSpec) -> dict[str, Any]:
     if bad or len(factors) != 1:
         raise ValueError(f"expected pairwise claims on one factor: non-pairwise {bad}, factors {sorted(factors)}")
     claims = [Claim(r["local_id"], r["feature_kind"], r["feature_label"], r["site_term"], r["direction"],
-                    r["treatment"], r["reference"], _stat(r)) for r in raw]
+                    r["treatment"], r["reference"], _stat(r), r["finding_id"]) for r in raw]
     runs_raw = [dict(r) for r in (await db.execute(text(RUNS_SQL), {"sid": sid, "fid": factors.pop(),
                                                                      "pid": prof["profile_id"]})).mappings().all()]
     wanted = sorted({k for sel in spec.sites.values() for k in sel} | ({spec.level_check_field} - {None}))
@@ -527,7 +528,7 @@ async def load_catalog(db, spec: MatchSpec) -> dict[str, Any]:
             raise ValueError(f"design level disagrees with {spec.level_check_field} for runs {off}")
     runs = [RunInfo(r["run_acc"], r["subject"], r["diet"], vals[r["sample_id"]], r["depth_status"], r["n_reads"])
             for r in runs_raw]
-    return {"profile": prof, "claims": claims, "runs": runs}
+    return {"study_id": sid, "profile": prof, "claims": claims, "runs": runs}
 
 
 def _check_types(df, schema, cols: list[str], table: str) -> None:
@@ -585,14 +586,11 @@ def depth_table(spec: MatchSpec, runs: list[RunInfo]) -> list[tuple[str, str, st
     return [(*k, n) for k, n in sorted(out.items())]
 
 
-async def run(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="python -m app.reports.finding_vs_profile", description=__doc__.splitlines()[0])
-    ap.add_argument("map", type=Path, help="conf/match/<BioProject>.yml")
-    ap.add_argument("--out", type=Path, help="directory for <BioProject>_finding_vs_profile.md and .tsv")
-    ap.add_argument("--min-prevalence", type=int, default=MIN_PREVALENCE)
-    ap.add_argument("--alpha", type=float, default=ALPHA)
-    args = ap.parse_args(argv)
-    spec = load_spec(args.map)
+async def compute(map_path: Path, min_prevalence: int = MIN_PREVALENCE, alpha: float = ALPHA) -> dict[str, Any]:
+    """Everything the report shows, computed once: used by this report and by app.ingest.finding_checks, so the
+    stored verdicts are the reported ones. The map is read once (its bytes are what the sha256 names)."""
+    raw = map_path.read_bytes()
+    spec = MatchSpec.model_validate(yaml.safe_load(raw))
 
     from app.config import settings
     from app.database import AsyncSessionLocal
@@ -608,16 +606,27 @@ async def run(argv: list[str] | None = None) -> int:
     finally:
         spark.stop()
     check_profile(lake["rows"], lake["taxa"], cat["runs"])
-    rows, families = analyse(spec, cat["claims"], cat["runs"], lake["rows"], lake["taxa"],
-                             args.min_prevalence, args.alpha)
+    rows, families = analyse(spec, cat["claims"], cat["runs"], lake["rows"], lake["taxa"], min_prevalence, alpha)
     c0 = cat["claims"][0]
     header = {"bioproject": spec.bioproject, "pmcid": spec.pmcid, "signed": spec.signed,
               "reviewed_by": spec.review.reviewed_by, "reviewed_on": spec.review.reviewed_on,
               "profile_key": cat["profile"]["profile_key"], "delta_uri": cat["profile"]["delta_uri"],
               "delta_version": cat["profile"]["delta_version"], "taxon_version": lake["taxon_version"],
-              "map_path": str(args.map), "map_sha256": hashlib.sha256(args.map.read_bytes()).hexdigest(),
-              "min_prevalence": args.min_prevalence, "alpha": args.alpha,
+              "map_path": str(map_path), "map_sha256": hashlib.sha256(raw).hexdigest(),
+              "min_prevalence": min_prevalence, "alpha": alpha,
               "treatment": c0.treatment, "reference": c0.reference}
+    return {"spec": spec, "catalog": cat, "rows": rows, "families": families, "header": header}
+
+
+async def run(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="python -m app.reports.finding_vs_profile", description=__doc__.splitlines()[0])
+    ap.add_argument("map", type=Path, help="conf/match/<BioProject>.yml")
+    ap.add_argument("--out", type=Path, help="directory for <BioProject>_finding_vs_profile.md and .tsv")
+    ap.add_argument("--min-prevalence", type=int, default=MIN_PREVALENCE)
+    ap.add_argument("--alpha", type=float, default=ALPHA)
+    args = ap.parse_args(argv)
+    out = await compute(args.map, args.min_prevalence, args.alpha)
+    spec, cat, rows, families, header = out["spec"], out["catalog"], out["rows"], out["families"], out["header"]
     site_names = {t: " / ".join(sel.values()) for t, sel in spec.sites.items()}
     notes = {cid: m.note for cid, m in spec.claims.items() if m.note}
     md = markdown(rows, families, header, site_names, depth_table(spec, cat["runs"]), notes)
