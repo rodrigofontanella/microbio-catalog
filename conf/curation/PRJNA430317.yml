@@ -16,8 +16,8 @@ bioproject: PRJNA430317
 pmcid: PMC7568366
 method: paper_methods:PMC7568366
 review:
-  reviewed_by:
-  reviewed_on:
+  reviewed_by: Rodrigo Fontanella
+  reviewed_on: 2026-11-10
 
 facts:
   # ── who was sampled ────────────────────────────────────────────────────────
