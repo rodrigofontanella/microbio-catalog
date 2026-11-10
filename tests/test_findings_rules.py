@@ -110,6 +110,9 @@ def test_valid_spec_passes(jats, design):
     ("beta-cae-unweighted", lambda c: c["test"].update(name="Kruskal-Wallis"), "doesn't come from a Kruskal-Wallis"),
     ("host-adg", lambda c: c["test"].update(name="t-test"), "doesn't come from a t-test"),
     ("alpha-cae-richness-allium-control", lambda c: c["test"].update(name="Wilcoxon"), "test is {name"),
+    # a phylum is a relative-abundance feature only (d2362d368390)
+    ("alpha-cae-richness-allium-control", lambda c: c["about"]["feature"].update(kind="phylum"),
+     "doesn't fit measure alpha_diversity"),
 ])
 def test_rule_breaks(jats, design, claim_id, change, expect):
     errors = check(broken(claim_id, change), jats, design)
@@ -185,3 +188,14 @@ def test_study3_tests_stand_alone(jats, design, name):
     *_, (row, _levels) = finding_rows(spec, study_id=3, experiment_id=6, doc_id=9, factor_id=12, level_ids=LEVELS,
                                       feature_set_ids={}, fulltext_sha256="abc")
     assert (row["test"], row["test_stat_kind"], row["test_stat_value"]) == (name, None, None)
+
+
+def test_phylum_claim_passes_and_keeps_its_rank_as_kind(jats, design):
+    """A relative-abundance claim about one phylum (study 3): check() passes, the row carries kind 'phylum'."""
+    def to_phylum(c):
+        c.update(measure="relative_abundance", about={"feature": {"kind": "phylum", "label": "Firmicutes"}})
+    spec = broken("alpha-cae-richness-allium-control", to_phylum)
+    assert check(spec, jats, design) == []
+    *_, (row, _levels) = finding_rows(spec, study_id=3, experiment_id=6, doc_id=9, factor_id=12, level_ids=LEVELS,
+                                      feature_set_ids={}, fulltext_sha256="abc")
+    assert (row["measure"], row["feature_kind"], row["feature_label"]) == ("relative_abundance", "phylum", "Firmicutes")

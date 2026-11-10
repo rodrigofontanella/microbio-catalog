@@ -1,0 +1,654 @@
+# Findings from PMC7568366 (Yan et al. 2020, BMC Vet Res 16:392, CC BY 4.0) for PRJNA430317 (study 3).
+# Loaded into core.finding / core.finding_level (design doc §5.8) by app.ingest.findings, as tier 'curated'
+# only once signed below. Drafted by Claude 2026-11-10, for review.
+#
+#   python scripts/check_findings_quotes.py conf/findings/PRJNA430317.yml /home/fontanella/lab/raw/europepmc/20261110T132414Z/PMC7568366
+#   python -m app.ingest.findings conf/findings/PRJNA430317.yml --dry-run
+#
+# Rules from studies 1-2, unchanged: store what the paper says and where it came from, never guess; nulls are
+# findings with their scope; omnibus stays omnibus; no effect sizes from text; a direction the text implies but
+# doesn't state is flagged; a claim with no printed statistic is stored without one, flagged.
+# Decided 2026-11-10 (Rodrigo; handoff-2026-11-10-study3 "Findings: decided"), migrations a8f4d5f5fd45
+# (t-test, Kruskal-Wallis) and d2362d368390 (feature kind phylum):
+#   - host scope: growth only (BW d39, ADG d0-d39, feed:gain d0-d39); carcass CT, serum, IMF, myofiber and gene
+#     outcomes are not findings
+#   - baseline (d0 feces, before the diets): alpha, beta and the four phyla as no_difference findings, flag
+#     'baseline'; the randomization balance check is a query
+#   - endpoint phylum P values as printed, stat kind p, flag adjustment_unclear (fact ambiguity-adjusted-p);
+#     'tended to' = no_difference + the printed P, flag authors_trend (study 2's authors_marginal rule)
+#   - F/B ratio: not stored (derived from two phyla stored here)
+#   - genus printed 'Misuokella' → label Mitsuokella, flag printed_as (the quote keeps the printed spelling)
+# Carried over from study 2 (not asked again):
+#   - feed:gain: the text says only "improved feed conversion efficiency" → decrease, flag direction_from_improved
+#   - endpoint beta "significant separate clustering" → differs, omnibus, no statistic, flagged
+#
+# Test names from the Methods ('Statistics analysis'): growth Student's t-test; alpha and taxa Kruskal-Wallis;
+# beta PERMANOVA (999 permutations). BH correction; significant = adjusted P < 0.05.
+# Contrast: every pairwise claim is antibiotics vs control (the design's two levels); beta is omnibus over both.
+# Site / material / age: feces d0 = UBERON:0001988, material not stated (null), age 28/28; caecum UBERON:0001153
+# and colon UBERON:0001155 digesta post mortem, age 67/67 (facts sampling-schedule, material-caecum/-colon).
+# Taxonomy: not set (the reference database is in Supplementary S1.3, not in the JATS).
+#
+# Review points (Claude's readings, not decisions yet):
+#   R1 endpoint alpha nulls: the sentence says only "the alpha diversity indices"; expanded to the three named
+#      in the baseline sentence of the same Table S3 (fact alpha-indices), flag indices_from_fact. Alternative:
+#      not stored.
+#   R2 genera: the decrease sentence prints no P; the increase sentence prints "(P < 0.05)" unqualified. Both
+#      cite Fig. 7, whose legend says "Adjusted p value lower than 0.05" → every genus claim takes the legend's
+#      Q < 0.05 (source figure_legend), not the text's P. The parenthesis closes the hollow-diamond (lower)
+#      sentence; read as covering both marks, flag legend_scope on all 16.
+#   R3 not findings: baseline "none of the OTUs were significantly differentiated" (no single feature; would
+#      need a feature set of every genus, Fig. S4 is supplementary); class/order/family (supplementary only).
+#
+# Counts: 41 claims = growth 3 + baseline 8 (alpha 3, beta 1, phyla 4) + endpoint alpha 6 + endpoint beta 2
+#         + endpoint phyla 6 + genera 16 (caecum 4 down / 2 up, colon 5 down / 5 up). No group values (figures).
+
+bioproject: PRJNA430317
+pmcid: PMC7568366
+experiment: main
+review:
+  reviewed_by: Rodrigo Fontanella
+  reviewed_on: 2026-11-10
+
+claims:
+  # ════ growth, d0-d39 = days 28-67 of life (t-test; P in the text) ═══════════════════════════════════════════
+  - id: h-bw67-antibiotics-control
+    section: &s_growth Effects of antibiotic exposure on growth rate and carcass composition of piglets
+    quote: &q_bw "After 39 days' exposure, an effect was observed in terms of body weight and growth rate, with antibiotic-treated piglets growing faster than control piglets (Fig. 2a and b) (P < 0.05)."
+    measure: body_weight
+    age: {from: 67, to: 67}
+    contrast: &pair {kind: pairwise, treatment: antibiotics, reference: control}
+    direction: increase
+    test: &t_test {name: t-test}
+    stat: &st_text05 {kind: p, op: "<", value: 0.05, scope: contrast, source: text}
+    figure: Fig. 2a
+    flags: ["direction_from_growing_faster: 'growing faster' covers body weight and growth rate together"]
+
+  - id: h-adg-antibiotics-control
+    section: *s_growth
+    quote: *q_bw
+    measure: average_daily_gain
+    age: {from: 28, to: 67}
+    contrast: *pair
+    direction: increase
+    test: *t_test
+    stat: *st_text05
+    figure: Fig. 2b
+
+  - id: h-fcr-antibiotics-control
+    section: *s_growth
+    quote: "Antibiotic administration improved the feed conversion efficiency of the piglets (Fig. 2c) (P < 0.05)."
+    measure: feed_conversion_ratio
+    age: {from: 28, to: 67}
+    contrast: *pair
+    direction: decrease
+    test: *t_test
+    stat: *st_text05
+    figure: Fig. 2c
+    flags: ["direction_from_improved: the text says 'improved feed conversion efficiency'; Fig. 2c plots feed:gain, so improved = lower"]
+
+  # ════ baseline: d0 feces, before the diets (age 28) ══════════════════════════════════════════════════════════
+  - id: b-feces-chao1-null
+    section: &s_base No significant differences were observed in initial fecal microbiota composition between groups
+    quote: &q_base_alpha "The antibiotic and control group exhibited similar alpha diversity, as there were no differences in richness (Chao1 index), diversity (Shannon index) and evenness (InvSimpson index) (Additional file Table S3)."
+    site: &feces UBERON:0001988
+    material: null
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Chao1}}
+    age: &d28 {from: 28, to: 28}
+    contrast: *pair
+    direction: no_difference
+    test: &t_kw {name: Kruskal-Wallis}
+    flags: &fl_base_s3 ["baseline: d0, before the diets (fact sampling-schedule)",
+                        "supplementary_table_s3: the statistic is in Additional file Table S3, not in the full text"]
+
+  - id: b-feces-shannon-null
+    section: *s_base
+    quote: *q_base_alpha
+    site: *feces
+    material: null
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Shannon}}
+    age: *d28
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    flags: *fl_base_s3
+
+  - id: b-feces-invsimpson-null
+    section: *s_base
+    quote: *q_base_alpha
+    site: *feces
+    material: null
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: InvSimpson}}
+    age: *d28
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    flags: *fl_base_s3
+
+  - id: b-feces-braycurtis-null
+    section: *s_base
+    quote: "The non-metric multidimensional scaling (NMDS) plot that visualized the Bray-Curtis dissimilarity index of the samples revealed no significant difference in beta diversity of fecal microbiota community between the two groups (Fig. 1a)."
+    site: *feces
+    material: null
+    measure: beta_diversity
+    about: {feature: {kind: distance_metric, label: Bray-Curtis}}
+    age: *d28
+    contrast: &omni {kind: omnibus, levels: [control, antibiotics]}
+    direction: no_difference
+    test: &t_perm {name: PERMANOVA}
+    figure: Fig. 1a
+    flags: ["baseline: d0, before the diets (fact sampling-schedule)",
+            "no_statistic: no PERMANOVA statistic or p in the text or the Fig. 1 legend",
+            "intragroup: the Methods call the PERMANOVA 'intragroup' (fact ambiguity-intragroup)"]
+
+  - id: b-feces-firmicutes-null
+    section: *s_base
+    quote: &q_base_phyla "No significant differences were prevalent in the relative abundance of Firmicutes, Bacteroidetes, Proteobacteria and Spirochaetes between the groups (Fig. 1b)."
+    site: *feces
+    material: null
+    measure: relative_abundance
+    about: {feature: {kind: phylum, label: Firmicutes}}
+    age: *d28
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    figure: Fig. 1b
+    flags: &fl_base_fig ["baseline: d0, before the diets (fact sampling-schedule)",
+                         "no_statistic: the Fig. 1 legend defines * P < 0.05 and ** P < 0.01 marks; no P is printed for these phyla"]
+
+  - id: b-feces-bacteroidetes-null
+    section: *s_base
+    quote: *q_base_phyla
+    site: *feces
+    material: null
+    measure: relative_abundance
+    about: {feature: {kind: phylum, label: Bacteroidetes}}
+    age: *d28
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    figure: Fig. 1b
+    flags: *fl_base_fig
+
+  - id: b-feces-proteobacteria-null
+    section: *s_base
+    quote: *q_base_phyla
+    site: *feces
+    material: null
+    measure: relative_abundance
+    about: {feature: {kind: phylum, label: Proteobacteria}}
+    age: *d28
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    figure: Fig. 1b
+    flags: *fl_base_fig
+
+  - id: b-feces-spirochaetes-null
+    section: *s_base
+    quote: *q_base_phyla
+    site: *feces
+    material: null
+    measure: relative_abundance
+    about: {feature: {kind: phylum, label: Spirochaetes}}
+    age: *d28
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    figure: Fig. 1b
+    flags: *fl_base_fig
+
+  # ════ endpoint alpha: caecum and colon digesta, d39 (age 67); R1 ════════════════════════════════════════════
+  - id: a-cae-chao1-null
+    section: &s_gut Antibiotic exposure resulted in an altered gut microbiota
+    quote: &q_alpha "No significant differences in the alpha diversity indices were observed in both caecum and colon microbiota between the groups (Additional file Table S3)."
+    site: &caecum UBERON:0001153
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Chao1}}
+    age: &d67 {from: 67, to: 67}
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    flags: &fl_alpha ["supplementary_table_s3: the statistic is in Additional file Table S3, not in the full text",
+                      "indices_from_fact: the sentence says 'the alpha diversity indices'; the three are named for the same Table S3 at baseline (fact alpha-indices)"]
+
+  - id: a-cae-shannon-null
+    section: *s_gut
+    quote: *q_alpha
+    site: *caecum
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Shannon}}
+    age: *d67
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    flags: *fl_alpha
+
+  - id: a-cae-invsimpson-null
+    section: *s_gut
+    quote: *q_alpha
+    site: *caecum
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: InvSimpson}}
+    age: *d67
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    flags: *fl_alpha
+
+  - id: a-col-chao1-null
+    section: *s_gut
+    quote: *q_alpha
+    site: &colon UBERON:0001155
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Chao1}}
+    age: *d67
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    flags: *fl_alpha
+
+  - id: a-col-shannon-null
+    section: *s_gut
+    quote: *q_alpha
+    site: *colon
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: Shannon}}
+    age: *d67
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    flags: *fl_alpha
+
+  - id: a-col-invsimpson-null
+    section: *s_gut
+    quote: *q_alpha
+    site: *colon
+    material: digesta
+    measure: alpha_diversity
+    about: {feature: {kind: alpha_index, label: InvSimpson}}
+    age: *d67
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    flags: *fl_alpha
+
+  # ════ endpoint beta (Fig. 6): significant, no statistic ══════════════════════════════════════════════════════
+  - id: beta-cae-braycurtis
+    section: *s_gut
+    quote: &q_beta "On the other hand, the NMDS plots of the Bray Curtis distance showed significant separate clustering of samples according to groups (Fig. 6a and b)."
+    site: *caecum
+    material: digesta
+    measure: beta_diversity
+    about: {feature: {kind: distance_metric, label: Bray-Curtis}}
+    age: *d67
+    contrast: *omni
+    direction: differs
+    test: *t_perm
+    figure: Fig. 6a
+    flags: &fl_beta ["no_statistic: 'significant separate clustering' with no PERMANOVA statistic or p (fact ambiguity-beta-no-statistic)",
+                     "intragroup: the Methods call the PERMANOVA 'intragroup' (fact ambiguity-intragroup)"]
+
+  - id: beta-col-braycurtis
+    section: *s_gut
+    quote: *q_beta
+    site: *colon
+    material: digesta
+    measure: beta_diversity
+    about: {feature: {kind: distance_metric, label: Bray-Curtis}}
+    age: *d67
+    contrast: *omni
+    direction: differs
+    test: *t_perm
+    figure: Fig. 6b
+    flags: *fl_beta
+
+  # ════ endpoint phyla (text; Additional file Fig. S6): P as printed, adjustment unclear ═══════════════════════
+  - id: p-cae-firmicutes
+    section: *s_gut
+    quote: &q_phyla "At the phylum level, Firmicutes was increased in the caecum (P < 0.05) and tended to increase in the colon (P = 0.069) of antibiotic-treated piglets, while Bacteroidetes tended to increase in the caecum (P = 0.056) and colon (P = 0.076) of the control group (Additional file Fig. S6A and 6B)."
+    site: *caecum
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: phylum, label: Firmicutes}}
+    age: *d67
+    contrast: *pair
+    direction: increase
+    test: *t_kw
+    stat: *st_text05
+    figure: Additional file Fig. S6A
+    flags: &fl_adj ["adjustment_unclear: Methods count only BH-adjusted P < 0.05; the text doesn't say this P is adjusted (fact ambiguity-adjusted-p)"]
+
+  - id: p-col-firmicutes-trend
+    section: *s_gut
+    quote: *q_phyla
+    site: *colon
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: phylum, label: Firmicutes}}
+    age: *d67
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    stat: {kind: p, op: "=", value: 0.069, scope: contrast, source: text}
+    figure: Additional file Fig. S6B
+    flags: ["authors_trend: 'tended to increase' (higher with antibiotics); above 0.05",
+            "adjustment_unclear: Methods count only BH-adjusted P < 0.05; the text doesn't say this P is adjusted (fact ambiguity-adjusted-p)"]
+
+  - id: p-cae-bacteroidetes-trend
+    section: *s_gut
+    quote: *q_phyla
+    site: *caecum
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: phylum, label: Bacteroidetes}}
+    age: *d67
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    stat: {kind: p, op: "=", value: 0.056, scope: contrast, source: text}
+    figure: Additional file Fig. S6A
+    flags: &fl_bact ["authors_trend: 'tended to increase ... of the control group' (lower with antibiotics); above 0.05",
+                     "adjustment_unclear: Methods count only BH-adjusted P < 0.05; the text doesn't say this P is adjusted (fact ambiguity-adjusted-p)"]
+
+  - id: p-col-bacteroidetes-trend
+    section: *s_gut
+    quote: *q_phyla
+    site: *colon
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: phylum, label: Bacteroidetes}}
+    age: *d67
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    stat: {kind: p, op: "=", value: 0.076, scope: contrast, source: text}
+    figure: Additional file Fig. S6B
+    flags: *fl_bact
+
+  - id: p-cae-tenericutes
+    section: *s_gut
+    quote: &q_ten "Following the antibiotic treatment, a decreased abundance of Tenericutes was observed in the caecum (P < 0.05) and a trend towards a decrease in the colon (P = 0.069) (Additional file Fig. S6A and 6B)."
+    site: *caecum
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: phylum, label: Tenericutes}}
+    age: *d67
+    contrast: *pair
+    direction: decrease
+    test: *t_kw
+    stat: *st_text05
+    figure: Additional file Fig. S6A
+    flags: *fl_adj
+
+  - id: p-col-tenericutes-trend
+    section: *s_gut
+    quote: *q_ten
+    site: *colon
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: phylum, label: Tenericutes}}
+    age: *d67
+    contrast: *pair
+    direction: no_difference
+    test: *t_kw
+    stat: {kind: p, op: "=", value: 0.069, scope: contrast, source: text}
+    figure: Additional file Fig. S6B
+    flags: ["authors_trend: 'a trend towards a decrease' (lower with antibiotics); above 0.05",
+            "adjustment_unclear: Methods count only BH-adjusted P < 0.05; the text doesn't say this P is adjusted (fact ambiguity-adjusted-p)"]
+
+  # ════ genera (Fig. 7, BH-adjusted p < 0.05 from the legend); R2 ═════════════════════════════════════════════
+  # caecum, decreased with antibiotics
+  - id: g-cae-dialister
+    section: *s_gut
+    quote: &q_down "At the genus level, Dialister and Asteroleplasma were decreased in caecum and colon of antibiotic-treated piglets, Prevotella and Campylobacter were decreased in the caecum, and Selenomonas, Misuokella, and Acidaminococcus were decreased in the colon of piglets exposed to antibiotic."
+    site: *caecum
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Dialister}}
+    age: *d67
+    contrast: *pair
+    direction: decrease
+    test: *t_kw
+    stat: &st_fig7 {kind: Q, op: "<", value: 0.05, scope: contrast, source: figure_legend,
+                    section: Antibiotic exposure resulted in an altered gut microbiota,
+                    quote: "The closed black diamonds represent that the column numerator has higher abundance of the genus than denominator. The hollow diamonds represent that the column numerator has lower abundance of the genus than denominator (Adjusted p value lower than 0.05)."}
+    figure: Fig. 7
+    flags: &fl_fig7 ["legend_scope: the legend's 'Adjusted p value lower than 0.05' closes the hollow-diamond (lower) sentence; read as covering both marks"]
+
+  - id: g-cae-asteroleplasma
+    section: *s_gut
+    quote: *q_down
+    site: *caecum
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Asteroleplasma}}
+    age: *d67
+    contrast: *pair
+    direction: decrease
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7
+
+  - id: g-cae-prevotella
+    section: *s_gut
+    quote: *q_down
+    site: *caecum
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Prevotella}}
+    age: *d67
+    contrast: *pair
+    direction: decrease
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7
+
+  - id: g-cae-campylobacter
+    section: *s_gut
+    quote: *q_down
+    site: *caecum
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Campylobacter}}
+    age: *d67
+    contrast: *pair
+    direction: decrease
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7
+
+  # colon, decreased with antibiotics
+  - id: g-col-dialister
+    section: *s_gut
+    quote: *q_down
+    site: *colon
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Dialister}}
+    age: *d67
+    contrast: *pair
+    direction: decrease
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7
+
+  - id: g-col-asteroleplasma
+    section: *s_gut
+    quote: *q_down
+    site: *colon
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Asteroleplasma}}
+    age: *d67
+    contrast: *pair
+    direction: decrease
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7
+
+  - id: g-col-selenomonas
+    section: *s_gut
+    quote: *q_down
+    site: *colon
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Selenomonas}}
+    age: *d67
+    contrast: *pair
+    direction: decrease
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7
+
+  - id: g-col-mitsuokella
+    section: *s_gut
+    quote: *q_down
+    site: *colon
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Mitsuokella}}
+    age: *d67
+    contrast: *pair
+    direction: decrease
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: ["printed_as: 'Misuokella' (no such genus; Mitsuokella, Selenomonadaceae, next to Selenomonas in the same list)",
+            "legend_scope: the legend's 'Adjusted p value lower than 0.05' closes the hollow-diamond (lower) sentence; read as covering both marks"]
+
+  - id: g-col-acidaminococcus
+    section: *s_gut
+    quote: *q_down
+    site: *colon
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Acidaminococcus}}
+    age: *d67
+    contrast: *pair
+    direction: decrease
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7
+
+  # caecum, increased with antibiotics
+  - id: g-cae-phascolarctobacterium
+    section: *s_gut
+    quote: &q_up "Antibiotic exposure increased the abundance of Phascolarctobacterium and Paraprevotella in the caecum, and Oscillibacter, Coprococcus, Blautia, Ruminococcus, and Butyricicoccus in the colon (Fig. 7) (P < 0.05)."
+    site: *caecum
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Phascolarctobacterium}}
+    age: *d67
+    contrast: *pair
+    direction: increase
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7
+
+  - id: g-cae-paraprevotella
+    section: *s_gut
+    quote: *q_up
+    site: *caecum
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Paraprevotella}}
+    age: *d67
+    contrast: *pair
+    direction: increase
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7
+
+  # colon, increased with antibiotics
+  - id: g-col-oscillibacter
+    section: *s_gut
+    quote: *q_up
+    site: *colon
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Oscillibacter}}
+    age: *d67
+    contrast: *pair
+    direction: increase
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7
+
+  - id: g-col-coprococcus
+    section: *s_gut
+    quote: *q_up
+    site: *colon
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Coprococcus}}
+    age: *d67
+    contrast: *pair
+    direction: increase
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7
+
+  - id: g-col-blautia
+    section: *s_gut
+    quote: *q_up
+    site: *colon
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Blautia}}
+    age: *d67
+    contrast: *pair
+    direction: increase
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7
+
+  - id: g-col-ruminococcus
+    section: *s_gut
+    quote: *q_up
+    site: *colon
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Ruminococcus}}
+    age: *d67
+    contrast: *pair
+    direction: increase
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7
+
+  - id: g-col-butyricicoccus
+    section: *s_gut
+    quote: *q_up
+    site: *colon
+    material: digesta
+    measure: relative_abundance
+    about: {feature: {kind: genus, label: Butyricicoccus}}
+    age: *d67
+    contrast: *pair
+    direction: increase
+    test: *t_kw
+    stat: *st_fig7
+    figure: Fig. 7
+    flags: *fl_fig7

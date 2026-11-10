@@ -418,7 +418,7 @@ class StudyPublication(Base):
 
 CONTRAST_KINDS = ("pairwise", "omnibus", "grouping")
 SET_MEMBER_KINDS = ("genus", "otu", "enzyme", "alpha_index")         # core.feature_set: unchanged by 9dbf58ea10c0
-FEATURE_KINDS = SET_MEMBER_KINDS + ("distance_metric",)
+FEATURE_KINDS = SET_MEMBER_KINDS + ("distance_metric", "phylum")    # phylum: d2362d368390, study 3
 MATERIALS = ("digesta", "mucosa", "swab")
 MICROBIOME_MEASURES = ("relative_abundance", "alpha_diversity", "beta_diversity", "predicted_gene_count")
 HOST_MEASURES = ("body_weight", "average_daily_gain", "average_daily_feed_intake", "feed_conversion_ratio",
@@ -432,7 +432,7 @@ STAT_SOURCES = ("text", "figure_legend", "methods", "table")
 LEVEL_ROLES = ("member", "higher", "lower")
 FEATURE_FITS_MEASURE = (("relative_abundance", "genus"), ("relative_abundance", "otu"),
                         ("alpha_diversity", "alpha_index"), ("beta_diversity", "distance_metric"),
-                        ("predicted_gene_count", "enzyme"))
+                        ("predicted_gene_count", "enzyme"), ("relative_abundance", "phylum"))
 TESTS = ("GLM", "GLMM", "PERMANOVA", "LSD", "t-test", "Kruskal-Wallis")   # a8f4d5f5fd45: study 3
 TEST_STAT_KINDS = ("F", "pseudo_F")
 STAT_FITS_TEST = (("GLM", "F"), ("GLMM", "F"), ("PERMANOVA", "pseudo_F"))

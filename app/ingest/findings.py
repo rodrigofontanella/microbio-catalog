@@ -48,10 +48,10 @@ MEASURES = MICROBIOME_MEASURES | HOST_MEASURES
 DIRECTIONS = {"increase", "decrease", "no_difference", "counts", "differs"}
 STAT_KINDS, STAT_OPS = {"Q", "p"}, {"<", ">", "=", "<=", ">="}
 SCOPES, SOURCES = {"treatment", "contrast", "unknown"}, {"text", "figure_legend", "methods", "table"}
-TAXON_KINDS = {"genus", "otu"}
+TAXON_KINDS = {"genus", "otu", "phylum"}
 FEATURE_FITS_MEASURE = {("relative_abundance", "genus"), ("relative_abundance", "otu"),
                         ("alpha_diversity", "alpha_index"), ("beta_diversity", "distance_metric"),
-                        ("predicted_gene_count", "enzyme")}
+                        ("predicted_gene_count", "enzyme"), ("relative_abundance", "phylum")}
 TESTS = {"GLM", "GLMM", "PERMANOVA", "LSD", "t-test", "Kruskal-Wallis"}   # neither of the last two prints a statistic
 TEST_STAT_KINDS = {"F", "pseudo_F"}
 STAT_FITS_TEST = {("GLM", "F"), ("GLMM", "F"), ("PERMANOVA", "pseudo_F")}
