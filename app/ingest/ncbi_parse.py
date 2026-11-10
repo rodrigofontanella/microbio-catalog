@@ -170,6 +170,10 @@ class SubjectRule:
     """How a BioSample names its animal.
 
     attr only: the attribute's value *is* the animal key (PRJNA667518's `Pen`).
+    attr 'A+B': the animal is the combination of several attributes (PRJNA430317: `chem_administration` +
+    `Replicate`, because the replicate letters a-i repeat in each group); key 'antibiotics/a'. Always `inferred`.
+    distinct: attributes whose values must differ between one animal's samples (e.g. `env_feature`), so two
+    samples of the same site can't silently become one animal.
     attr + pattern: the key is the pattern's named group `animal` (PRJNA664026's `isolate` = tissue code + animal
     number, e.g. 'Ci54'). An optional group `code` is checked against `code_map` on `code_attr`: a code that
     disagrees with the sample's own attribute stops the load, because then the string isn't what we think it is.
@@ -178,9 +182,11 @@ class SubjectRule:
     pattern: re.Pattern[str] | None = None
     code_attr: str | None = None
     code_map: tuple[tuple[str, str], ...] = ()
+    distinct: tuple[str, ...] = ()
 
     @classmethod
-    def from_cli(cls, attr: str | None, pattern: str | None, code_map: str | None) -> "SubjectRule":
+    def from_cli(cls, attr: str | None, pattern: str | None, code_map: str | None,
+                 distinct: tuple[str, ...] | list[str] = ()) -> "SubjectRule":
         """attr: 'Pen'; pattern: 'isolate=^(?P<code>Ci|I|Co|D)(?P<animal>[0-9]+)$';
         code_map: 'tissue:Ci=Caecum,I=Ileum,Co=Colon,D=Duodenum'."""
         if pattern:
@@ -202,19 +208,41 @@ class SubjectRule:
             pairs = tuple(tuple(x.split("=", 1)) for x in body.split(","))
             if not code_attr or not pairs or any(len(p) != 2 or not p[0] or not p[1] for p in pairs):
                 raise ValueError(f"--subject-code-map must be ATTR:CODE=VALUE,…, got {code_map!r}")
-        return cls(attr=(attr or "host_subject_id").strip(), pattern=compiled,
-                   code_attr=code_attr.strip() if code_attr else None, code_map=pairs)
+        attr = (attr or "host_subject_id").strip()
+        if "+" in attr and (compiled is not None or any(not p.strip() for p in attr.split("+"))):
+            raise ValueError(f"a composite --subject-attr is ATTR+ATTR[+…], without --subject-pattern; got {attr!r}")
+        return cls(attr="+".join(p.strip() for p in attr.split("+")), pattern=compiled,
+                   code_attr=code_attr.strip() if code_attr else None, code_map=pairs,
+                   distinct=tuple(d.strip() for d in distinct if d and d.strip()))
+
+    @property
+    def parts(self) -> tuple[str, ...]:
+        return tuple(self.attr.split("+"))
+
+    @property
+    def is_composite(self) -> bool:
+        return len(self.parts) > 1
+
+    def missing(self, s: "BioSample") -> bool:
+        """The sample lacks (any of) the attribute(s) the key is made of."""
+        return any(is_null(s.get(p)) for p in self.parts)
 
     @property
     def is_parsed(self) -> bool:
         return self.pattern is not None
 
     def describe(self) -> dict:
-        return {"attr": self.attr, "pattern": self.pattern.pattern if self.pattern else None,
+        return {"attr": self.attr, "parts": list(self.parts), "distinct": list(self.distinct),
+                "pattern": self.pattern.pattern if self.pattern else None,
                 "code_attr": self.code_attr, "code_map": dict(self.code_map)}
 
     def match(self, s: BioSample) -> tuple[str | None, str | None, str | None]:
         """(animal key, code, raw value); key None if the attribute is absent or doesn't match."""
+        if self.is_composite:
+            if self.missing(s):
+                return None, None, None
+            key = "/".join(s.get(p) for p in self.parts)
+            return key, None, key
         v = s.get(self.attr)
         if is_null(v):
             return None, None, None
@@ -275,7 +303,7 @@ def validate(project: BioProject, samples: list[BioSample], runs: list[SraRun],
     rule = _rule(subject)
     if rule:
         subj = subject_values(samples, rule)
-        missing = [s.accession for s in samples if is_null(s.get(rule.attr))]
+        missing = [s.accession for s in samples if rule.missing(s)]
         if missing:
             v.warnings.append(f"{len(missing)} BioSamples lack {rule.attr!r}; they get no subject: {missing[:5]}")
         if rule.is_parsed:
@@ -304,6 +332,14 @@ def validate(project: BioProject, samples: list[BioSample], runs: list[SraRun],
         for s in samples:
             if s.accession in subj:
                 by_subject[subj[s.accession]].append(s)
+        for key, members in by_subject.items():
+            seen_distinct: dict[tuple, str] = {}
+            for m in members if rule.distinct else ():
+                val = tuple(m.get(d) for d in rule.distinct)
+                if val in seen_distinct:
+                    v.errors.append(f"subject {key!r} has two samples with {dict(zip(rule.distinct, val))}: "
+                                    f"{seen_distinct[val]}, {m.accession}")
+                seen_distinct[val] = m.accession
         for name in constant_per_subject:
             for key, members in by_subject.items():
                 values = {m.get(name) for m in members}

@@ -15,8 +15,8 @@ import pytest
 import respx
 
 from app.eutils import EUtils
-from app.ingest.ncbi_parse import (BioProject, SubjectRule, is_null, parse_bioproject, parse_biosamples,
-                                   parse_runinfo, subject_values, validate)
+from app.ingest.ncbi_parse import (Attribute, BioProject, BioSample, SubjectRule, is_null, parse_bioproject,
+                                   parse_biosamples, parse_runinfo, subject_values, validate)
 from app.ingest.ncbi_study import Fetched, read_raw, write_raw
 from app.ncbi_client import NCBIUnavailableError
 
@@ -265,3 +265,67 @@ def test_an_animal_with_two_treatments_stops(piglets):
     bad = samples[:i] + [_with(samples[i], treatment=other)] + samples[i + 1:]
     errors = validate(P2, bad, runs, SubjectRule.from_cli(None, PATTERN, CODES), ("treatment",)).errors
     assert any("subject '54': 'treatment' differs" in e for e in errors)
+
+
+
+# ── a composite animal key (PRJNA430317: chem_administration + Replicate; letters repeat per group) ────
+
+P3 = BioProject("PRJNA430317", "430317", None, None)
+SITES = (("Day 0", "feces"), ("Day 39", "caecum"), ("Day 39", "colon"))
+
+
+def _bs(n: int, group: str, letter: str, day: str, site: str) -> BioSample:
+    attrs = {"chem_administration": group, "Replicate": letter, "Time": day, "env_feature": site}
+    return BioSample(f"SAMN{n:08d}", None, None, f"{group}_d{day.split()[1]}_{site}_{letter}",
+                     tuple(Attribute(k, None, None, v) for k, v in attrs.items()))
+
+
+@pytest.fixture
+def tylosin():   # 2 groups x 3 letters x 3 samples, made-up accessions in PRJNA430317's shape
+    out, n = [], 1
+    for group in ("control", "antibiotics"):
+        for letter in "abc":
+            for day, site in SITES:
+                out.append(_bs(n, group, letter, day, site)); n += 1
+    return out
+
+
+def test_composite_rule_from_cli():
+    r = SubjectRule.from_cli("chem_administration + Replicate", None, None, ["env_feature"])
+    assert (r.attr, r.parts, r.is_composite, r.is_parsed, r.distinct) == (
+        "chem_administration+Replicate", ("chem_administration", "Replicate"), True, False, ("env_feature",))
+    assert r.describe()["parts"] == ["chem_administration", "Replicate"]
+    assert not SubjectRule.from_cli("Pen", None, None).is_composite
+    for bad in ("chem_administration+", "+Replicate", "a++b"):
+        with pytest.raises(ValueError, match="composite"):
+            SubjectRule.from_cli(bad, None, None)
+
+
+def test_letters_repeat_per_group_so_the_key_needs_both(tylosin):
+    by_letter = subject_values(tylosin, SubjectRule.from_cli("Replicate", None, None))
+    assert len(set(by_letter.values())) == 3                     # 'a' alone would merge two pigs
+    rule = SubjectRule.from_cli("chem_administration+Replicate", None, None, ["env_feature"])
+    keys = subject_values(tylosin, rule)
+    assert sorted(set(keys.values())) == ["antibiotics/a", "antibiotics/b", "antibiotics/c",
+                                          "control/a", "control/b", "control/c"]
+    assert all(list(keys.values()).count(k) == 3 for k in set(keys.values()))
+    v = validate(P3, tylosin, [], rule, ("chem_administration",))
+    assert v.ok, v.errors
+
+
+def test_two_samples_of_one_site_in_one_animal_stop(tylosin):
+    rule = SubjectRule.from_cli("chem_administration+Replicate", None, None, ["env_feature"])
+    dup = tylosin + [_bs(99, "control", "a", "Day 39", "colon")]
+    errors = validate(P3, dup, [], rule, ()).errors
+    assert any("subject 'control/a' has two samples with {'env_feature': 'colon'}" in e for e in errors)
+    # without --subject-distinct the same duplicate passes: the check is what protects the merge
+    assert validate(P3, dup, [], SubjectRule.from_cli("chem_administration+Replicate", None, None), ()).ok
+
+
+def test_a_sample_missing_one_key_part_gets_no_subject(tylosin):
+    rule = SubjectRule.from_cli("chem_administration+Replicate", None, None, ["env_feature"])
+    lacking = [dataclasses.replace(tylosin[0], attributes=tuple(a for a in tylosin[0].attributes
+                                                                if a.attribute_name != "Replicate"))] + tylosin[1:]
+    assert tylosin[0].accession not in subject_values(lacking, rule)
+    v = validate(P3, lacking, [], rule, ())
+    assert v.ok and any("lack 'chem_administration+Replicate'" in w for w in v.warnings)

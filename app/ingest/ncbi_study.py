@@ -4,11 +4,13 @@ and every BioSample attribute as an `asserted` prov.assertion.
     python -m app.ingest.ncbi_study PRJNA667518 --subject-attr Pen --pen-attr Pen --dry-run
     python -m app.ingest.ncbi_study PRJNA667518 --subject-attr Pen --pen-attr Pen
     python -m app.ingest.ncbi_study PRJNA667518 --subject-attr Pen --pen-attr Pen --from-raw <dir>
+    python -m app.ingest.ncbi_study PRJNA430317 --subject-attr 'chem_administration+Replicate' --subject-distinct env_feature
     python -m app.ingest.ncbi_study PRJNA664026 --subject-pattern 'isolate=^(?P<code>Ci|I|Co|D)(?P<animal>[0-9]+)$' \
         --subject-code-map 'tissue:Ci=Caecum,I=Ileum,Co=Colon,D=Duodenum' --subject-constant sex --subject-constant treatment
 
-Subjects: --subject-attr when an attribute's value is the animal; --subject-pattern when the animal is part of
-a value (named group `animal`, optional `code` checked against --subject-code-map). A parsed key is tier
+Subjects: --subject-attr when an attribute's value is the animal ('A+B' when the animal is a combination of
+attributes, tier `inferred`; --subject-distinct names attributes that must differ between an animal's samples);
+--subject-pattern when the animal is part of a value (named group `animal`, optional `code` checked against --subject-code-map). A parsed key is tier
 `inferred`: every value must parse, every code must agree with the sample's own attribute, an animal can't have
 the same code twice, and each --subject-constant must have one value per animal. Any failure stops the load.
 
@@ -244,6 +246,13 @@ async def load(db: AsyncSession, project: BioProject, samples: list[BioSample], 
                      "Verify in the paper's Methods")
             value_text = f"biosample_attr:{subject.attr} ~ {subject.pattern.pattern}"
             method = "ingest_rule:subject_from_pattern"
+        elif subject.is_composite:
+            basis = (f"one subject per distinct combination of BioSample attributes {' + '.join(subject.parts)}; "
+                     "assumes the same combination is the same animal across samples"
+                     + (f"; checked: each animal's samples differ in {', '.join(subject.distinct)}" if subject.distinct else "")
+                     + ". Verify in the paper's Methods")
+            value_text = f"biosample_attrs:{subject.attr}"
+            method = "ingest_rule:subject_from_attrs"
         else:
             basis = (f"one subject per distinct BioSample {subject.attr!r} value"
                      + ("" if tier == "asserted" else "; assumes one sampled animal per value. Verify in the paper's Methods"))
@@ -285,6 +294,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "part of the value, e.g. \"isolate=^(?P<code>Ci|I|Co|D)(?P<animal>[0-9]+)$\"")
     ap.add_argument("--subject-code-map",
                     help="ATTR:CODE=VALUE,… : each code must equal the sample's ATTR, e.g. 'tissue:Ci=Caecum,I=Ileum'")
+    ap.add_argument("--subject-distinct", action="append", default=[],
+                    help="BioSample attribute whose value must differ between one animal's samples (repeatable), "
+                         "e.g. env_feature")
     ap.add_argument("--subject-constant", action="append", default=[],
                     help="BioSample attribute that must have one value per animal (repeatable), e.g. sex")
     ap.add_argument("--pen-attr", help="BioSample attribute holding the pen")
@@ -319,7 +331,8 @@ async def run(argv: list[str] | None = None) -> int:
     samples = parse_biosamples(fetched.biosample_xml)
     runs = parse_runinfo(fetched.runinfo_csv)
     try:
-        subject = SubjectRule.from_cli(args.subject_attr, args.subject_pattern, args.subject_code_map)
+        subject = SubjectRule.from_cli(args.subject_attr, args.subject_pattern, args.subject_code_map,
+                                       args.subject_distinct)
     except (ValueError, re.error) as e:
         print(f"ERROR {e}", file=sys.stderr)
         return 2
@@ -339,6 +352,7 @@ async def run(argv: list[str] | None = None) -> int:
           f"({'parsed from ' + subject.attr if subject.is_parsed else subject.attr})", file=sys.stderr)
     params = {"bioproject": acc, "bioproject_uid": project.uid, "subject_attr": subject.attr,
               "subject_rule": subject.describe(), "subject_constants": list(args.subject_constant),
+              "subject_distinct": list(args.subject_distinct),
               "pen_attr": args.pen_attr, "litter_attr": args.litter_attr,
               "fetched_at": (fetched_at.isoformat() if not args.from_raw else f"from_raw:{raw_dir.name}"),
               "from_raw": bool(args.from_raw), "manifest": manifest, "dry_run": args.dry_run,
