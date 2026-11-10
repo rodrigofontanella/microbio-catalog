@@ -1,0 +1,350 @@
+# Facts from the paper behind PRJNA430317 (study 3), for review. Loaded as tier 'curated' only once signed below.
+#
+#   python -m app.ingest.curation conf/curation/PRJNA430317.yml --dry-run
+#
+# Drafted by Claude from PMC7568366 (BMC Vet Res 2020, 16:392, doi 10.1186/s12917-020-02592-0, CC BY 4.0), full
+# text fetched 2026-11-10 (raw: ~/lab/raw/europepmc/20261110T132414Z/PMC7568366, fulltext.xml sha256
+# 9bf63525…). Every quote is checked verbatim against that full text by the loader; "not reported" facts are
+# checked by searching the named sections for the given patterns. Section names are the paper's (no numbers).
+# Decided 2026-11-10 (Rodrigo): subjects from chem_administration + Replicate stay 'inferred' (the paper never
+# names the letters); time is not a design factor (confounded with site: 'sampling-schedule').
+# Sample selectors use the stored (NCBI-harmonized) field names: env_feature → env_local_scale, env_material →
+# env_medium (checked against biosample.xml, 2026-11-10).
+# Review: read each fact against its quote, fix or delete what you disagree with, then sign (YYYY-MM-DD, unquoted).
+
+bioproject: PRJNA430317
+pmcid: PMC7568366
+method: paper_methods:PMC7568366
+review:
+  reviewed_by:
+  reviewed_on:
+
+facts:
+  # ── who was sampled ────────────────────────────────────────────────────────
+  - id: arrive-2-sample-size
+    target: {experiment: main}
+    field: "arrive:sample_size"
+    value_num: 18
+    unit: animals
+    section: Animal housing, treatments and sample collection
+    quote: "Eighteen piglets (Topics hybrid × Piétrain) weaned at 18 days of age were purchased from a local commercial farm (Ghent, Belgium)"
+    note: >-
+      18 piglets, 9 per diet: exactly what chem_administration + Replicate gives (18 keys, 3 samples each, 9 per
+      group). The paper never names the replicate letters, so the 18 subject_basis rows stay 'inferred'.
+
+  - id: arrive-2-sample-size-justification
+    target: {experiment: main}
+    field: "arrive:sample_size_justification"
+    value_text: "power calculation: 9 per group for 80% power to detect a 10% difference in growth rate (SD 7.5% of the mean), alpha 0.05"
+    section: Statistics analysis
+    quote: "The sample size was calculated to be 9 animals given a power of 80% to detect a difference of 10% in growth rate, with a standard deviation of 7.5% of the means at an α value of 0.05."
+    note: "Powered for growth rate, not for the microbiota outcomes."
+
+  # ── ARRIVE 2.0 Essential 10, on the experiment ─────────────────────────────
+  - id: arrive-1-design
+    target: {experiment: main}
+    field: "arrive:study_design"
+    value_text: "18 individually housed piglets randomly allocated at 28 days of age to a control diet or the same diet + tylosin phosphate 100 mg/kg (n = 9 each) for 39 days"
+    section: Animal housing, treatments and sample collection
+    quote: "piglets were randomly allocated to receive either a control diet (n = 9) or an antibiotic-containing diet (n = 9; tylosin phosphate, 100 mg/kg diet) by using computer-generated randomization lists"
+
+  - id: arrive-1-experimental-unit
+    target: {experiment: main}
+    field: "arrive:experimental_unit"
+    value_text: "piglet (individually housed)"
+    section: Statistics analysis
+    quote: "Piglet was considered the experimental unit for all analyses (n = 9 per treatment)"
+
+  - id: arrive-3-inclusion-exclusion
+    target: {experiment: main}
+    field: "arrive:inclusion_exclusion"
+    value_text: "not reported in PMC7568366"
+    absent:
+      sections: ["Animal housing, treatments and sample collection", "Genomic DNA extraction and microbiota analysis", "Statistics analysis"]
+      patterns: ['exclu', 'inclusion', 'removed', 'withdrawn']
+    note: "No animal or sample exclusion is mentioned; diversity was rarefied to the minimum depth instead ('paper-rarefaction')."
+
+  - id: arrive-4-randomisation
+    target: {experiment: main}
+    field: "arrive:randomisation"
+    value_text: "computer-generated randomisation lists"
+    section: Animal housing, treatments and sample collection
+    quote: "by using computer-generated randomization lists"
+
+  - id: balanced-allocation
+    target: {experiment: main}
+    field: allocation_balance
+    value_text: "treatments balanced for weight, sex and litter; none of the three is recorded in NCBI or modelled as a block"
+    section: Animal housing, treatments and sample collection
+    quote: "Treatments were balanced for weight, gender and litter."
+    note: "Why the design is completely_randomized: balancing is described, but no block enters the analysis (t-test, Kruskal-Wallis, PERMANOVA by group)."
+
+  - id: arrive-5-blinding
+    target: {experiment: main}
+    field: "arrive:blinding"
+    value_text: "one investigator randomised; the others were blinded to allocation until all measurements were recorded"
+    section: Animal housing, treatments and sample collection
+    quote: "One investigator was responsible for randomization whilst the other investigators remained blinded to the group allocation until all measurements were completed and recorded."
+
+  - id: arrive-6-outcomes
+    target: {experiment: main}
+    field: "arrive:outcome_measures"
+    value_text: "body weight at d39, ADG, feed intake and feed:gain d0-d39; carcass composition (CT); intramuscular fat; serum metabolites; myofiber characteristics; muscle gene expression; gut microbiota (alpha, Bray-Curtis beta, taxa)"
+    section: Animal housing, treatments and sample collection
+    quote: "The average daily gain, feed intake and feed to gain ratio were calculated for the period d 0-d 39."
+
+  - id: alpha-indices
+    target: {experiment: main}
+    field: alpha_diversity_indices
+    value_text: "Chao1 (richness), Shannon (diversity), InvSimpson (evenness)"
+    section: No significant differences were observed in initial fecal microbiota composition between groups
+    quote: "there were no differences in richness (Chao1 index), diversity (Shannon index) and evenness (InvSimpson index)"
+    note: "Named only in the Results; the Methods say 'alpha diversity indices … calculated using … vegan'."
+
+  - id: arrive-7-statistics-host
+    target: {experiment: main}
+    field: "arrive:statistical_methods"
+    value_text: "Student's t-test (SAS 9.1) for growth, carcass, serum, muscle and gene-expression traits, P < 0.05"
+    section: Statistics analysis
+    quote: "were tested for significance with the Student's t-test using statistic software SAS 9.1"
+
+  - id: arrive-7-statistics-microbiota
+    target: {experiment: main}
+    field: statistical_methods_microbiota
+    value_text: "Kruskal-Wallis for alpha diversity and taxa; PERMANOVA (999 permutations) on Bray-Curtis; Benjamini-Hochberg correction, adjusted P < 0.05"
+    section: Statistics analysis
+    quote: "the indices of alpha diversity and the relative abundances of taxa were compared with the non-parametric Kruskal-Wallis tests"
+    note: "BH: 'Corrections for the multiple comparisons in statistic testing were made using the Benjamini Hochberg method.' With two groups, Kruskal-Wallis is the Mann-Whitney test."
+
+  - id: arrive-8-animals-strain
+    target: {experiment: main}
+    field: "arrive:animals_strain"
+    value_text: "Topics hybrid × Piétrain (as printed)"
+    section: Animal housing, treatments and sample collection
+    quote: "Eighteen piglets (Topics hybrid × Piétrain)"
+    note: "See 'ambiguity-strain-name'."
+
+  - id: arrive-8-animals-sex
+    target: {experiment: main}
+    field: "arrive:animals_sex"
+    value_text: "both sexes, balanced between treatments; numbers per sex not reported; sex not recorded in NCBI"
+    section: Animal housing, treatments and sample collection
+    quote: "Treatments were balanced for weight, gender and litter."
+
+  - id: weaning-age
+    target: {experiment: main}
+    field: weaning_age_days
+    value_num: 18
+    unit: d
+    section: Animal housing, treatments and sample collection
+    quote: "weaned at 18 days of age"
+
+  - id: adaptation
+    target: {experiment: main}
+    field: adaptation_period
+    value_text: "10 days on solid feed before the trial, no antibiotics"
+    section: Animal housing, treatments and sample collection
+    quote: "adjusted to solid feed for 10 days, and all piglets had no access to antibiotic during the 10-day adaption period"
+
+  - id: trial-start-age
+    target: {experiment: main}
+    field: trial_start_age_days
+    value_num: 28
+    unit: d
+    section: Animal housing, treatments and sample collection
+    quote: "At 28 days of age (d0 of the trial)"
+
+  - id: diet-duration
+    target: {experiment: main}
+    field: diet_duration_days
+    value_num: 39
+    unit: d
+    section: Animal housing, treatments and sample collection
+    quote: "After 39 days, piglets were weighed and euthanized"
+    note: "Days 28-67 of life; NCBI host_age 67 days at Day 39 agrees."
+
+  - id: sampling-schedule
+    target: {experiment: main}
+    field: sampling_schedule
+    value_text: "feces at d0 (28 days of age, before the diets); caecum and mid-colon digesta post mortem at d39 (67 days); per sample in the NCBI attributes Time and host_age; not a design factor (time is confounded with site)"
+    section: Animal housing, treatments and sample collection
+    quote: "At d0 of the trial, fecal samples were collected and stored at - 80 °C."
+    note: "Decided 2026-11-10: time stays out of the design; findings carry it as their age window (28/28 baseline, 67/67 endpoint)."
+
+  - id: treatment-antibiotic
+    target: {experiment: main}
+    field: treatment_detail_antibiotic
+    value_text: "basal diet + tylosin phosphate 100 mg/kg diet"
+    section: Animal housing, treatments and sample collection
+    quote: "(n = 9; tylosin phosphate, 100 mg/kg diet)"
+
+  - id: treatment-control
+    target: {experiment: main}
+    field: treatment_detail_control
+    value_text: "basal diet (Additional file Table S1) formulated to CVB requirements"
+    section: Animal housing, treatments and sample collection
+    quote: "The diet (Additional file Table S1) was formulated to meet or exceed the piglets' requirements according to the Centraal Veevoeder Bureau (CVB, The Netherlands)."
+
+  - id: arrive-9-housing-feeding
+    target: {experiment: main}
+    field: "arrive:procedures_housing"
+    value_text: "individually housed; water ad libitum; four equal meals daily; feed allowance adjusted weekly to body weight (NRC 2012)"
+    section: Animal housing, treatments and sample collection
+    quote: "During the entire trial, all the piglets were housed individually and had free access to water, and were fed four equal meals daily."
+    note: "Restricted (meal) feeding, not ad libitum: feed intake differences are limited by design."
+
+  - id: euthanasia
+    target: {experiment: main}
+    field: euthanasia
+    value_text: "intraperitoneal pentobarbital 90 mg/kg BW, then exsanguination, at d39"
+    section: Animal housing, treatments and sample collection
+    quote: "euthanized by intra-peritoneal pentobarbital (90 mg/kg BW) injection, followed by exsanguination"
+
+  - id: farm
+    target: {experiment: main}
+    field: farm
+    value_text: "piglets from a local commercial farm (Ghent, Belgium); trial under Ghent University ethics approval"
+    section: Animal housing, treatments and sample collection
+    quote: "purchased from a local commercial farm (Ghent, Belgium)"
+
+  - id: ethics
+    target: {experiment: main}
+    field: "arrive:ethics"
+    value_text: "approved by the Ethical Committee of the Faculty of Veterinary Medicine, Ghent University; EU Directives 91/630/EEG and 98/58/EG; ARRIVE 2.0 followed"
+    section: Ethics approval and consent to participate
+    quote: "Animal experimental procedures were approved by the Ethical Committee of the Faculty of Veterinary Medicine of Ghent University."
+
+  - id: negative-controls
+    target: {experiment: main}
+    field: negative_controls
+    value_text: "not reported in PMC7568366 (no extraction blanks, PCR negatives or mock community mentioned)"
+    absent:
+      sections: ["Genomic DNA extraction and microbiota analysis"]
+      patterns: ['negative control', 'blank', 'mock']
+
+  # ── samples ─────────────────────────────────────────────────────────────────
+  - id: sampling-feces
+    target: {samples: {field: env_local_scale, equals: "feces"}}
+    field: sampling_detail
+    value_text: "feces at d0 of the trial (28 days of age), before the diets started; stored at -80 °C"
+    section: Animal housing, treatments and sample collection
+    quote: "At d0 of the trial, fecal samples were collected and stored at - 80 °C."
+
+  - id: sampling-caecum
+    target: {samples: {field: env_local_scale, equals: "caecum"}}
+    field: sampling_detail
+    value_text: "caecum digesta, immediately post mortem at d39 (67 days of age), flash-frozen in liquid nitrogen, -80 °C"
+    section: Animal housing, treatments and sample collection
+    quote: "Immediately post-mortem, serum samples, digesta from caecum and mid-colon, and longissimus muscle at 10th to 12th thoracic vertebrae were collected"
+
+  - id: sampling-colon
+    target: {samples: {field: env_local_scale, equals: "colon"}}
+    field: sampling_detail
+    value_text: "mid-colon digesta, immediately post mortem at d39 (67 days of age), flash-frozen in liquid nitrogen, -80 °C"
+    section: Animal housing, treatments and sample collection
+    quote: "Immediately post-mortem, serum samples, digesta from caecum and mid-colon, and longissimus muscle at 10th to 12th thoracic vertebrae were collected"
+
+  - id: material-caecum
+    target: {samples: {field: env_local_scale, equals: "caecum"}}
+    field: env_medium
+    value_text: "caecum digesta"
+    section: Genomic DNA extraction and microbiota analysis
+    quote: "DNA extractions from fecal pellets, caecum content and colon content were carried out as previously described [22]."
+    note: "Conflicts with NCBI's env_medium 'pig manure' (submitted as env_material, harmonized by NCBI) on these samples, a submitter template value; kept as a second assertion so the conflicts report shows it."
+
+  - id: material-colon
+    target: {samples: {field: env_local_scale, equals: "colon"}}
+    field: env_medium
+    value_text: "colon digesta"
+    section: Genomic DNA extraction and microbiota analysis
+    quote: "DNA extractions from fecal pellets, caecum content and colon content were carried out as previously described [22]."
+    note: "Conflicts with NCBI's env_medium 'pig manure' (see 'material-caecum')."
+
+  # ── libraries ───────────────────────────────────────────────────────────────
+  - id: marker-region
+    target: {libraries: all}
+    field: target_region
+    value_text: "16S rRNA V3-V4, primers 341F / 785R"
+    section: Genomic DNA extraction and microbiota analysis
+    quote: "The V3-V4 region of the 16S rRNA gene was amplified using the forward primer 341F"
+
+  - id: extraction-kit
+    target: {libraries: all}
+    field: extraction_kit
+    value_text: "not named: 'as previously described' (reference 22)"
+    section: Genomic DNA extraction and microbiota analysis
+    quote: "DNA extractions from fecal pellets, caecum content and colon content were carried out as previously described [22]."
+
+  - id: library-prep
+    target: {libraries: all}
+    field: library_prep
+    value_text: "pooled amplicons purified (AMPure XP, MinElute); libraries with Ovation Rapid DR Multiplex System 1-96 (NuGEN)"
+    section: Genomic DNA extraction and microbiota analysis
+    quote: "The Illumina libraries were constructed by purified pooled amplicon DNA with the Ovation Rapid DR Multiplex System 1-96 (NuGEN, San Carlos, CA)"
+
+  - id: sequencing
+    target: {libraries: all}
+    field: sequencing_run
+    value_text: "Illumina MiSeq at LGC Genomics GmbH, Berlin"
+    section: Genomic DNA extraction and microbiota analysis
+    quote: "were sent to LGC Genomics GmbH (Berlin, Germany) for sequencing on the Illumina Miseq platform"
+
+  # ── the paper's own processing (on the document) ───────────────────────────
+  - id: paper-otu-method
+    target: {document: true}
+    field: otu_method
+    value_text: "Mothur (Additional file S1.3): OTU table and taxonomy; downstream in R (vegan, phyloseq)"
+    section: Genomic DNA extraction and microbiota analysis
+    quote: "We obtained the OTU abundance table and the OTU taxonomic assignment table from Mothur software"
+    note: "Not PGMD's QIIME 2 + Greengenes: the paper's taxa and the catalog's PGMD profile differ in pipeline."
+
+  - id: paper-rarefaction
+    target: {document: true}
+    field: rarefaction_depth
+    value_text: "rarefied to the minimum sequencing depth (depth not reported)"
+    section: Genomic DNA extraction and microbiota analysis
+    quote: "the number of sequences per sample was randomly subsampled to the minimum sequencing depth"
+    note: "PGMD's profile of this study has median 4,972 reads (depth ok 25 / low 28 / fail 1); the paper's own minimum is unknown."
+
+  - id: paper-beta-metric
+    target: {document: true}
+    field: beta_diversity_metric
+    value_text: "Bray-Curtis (phyloseq), shown as NMDS"
+    section: Genomic DNA extraction and microbiota analysis
+    quote: "The Bray Curtis dissimilarity index as an indicator of beta diversity between samples was calculated using the distance function (phyloseq)"
+
+  # ── paper errors and ambiguities ────────────────────────────────────────────
+  - id: ambiguity-colonic-genes
+    target: {document: true}
+    field: paper_ambiguity
+    value_text: "Statistics and Conclusions mention colonic gene expression, but every gene-expression result in the full text is from longissimus muscle; colonic results, if any, are not in the article body"
+    section: Statistics analysis
+    quote: "skeletal muscle properties, and colonic genes expressions for control and antibiotic-treated piglets were tested"
+
+  - id: ambiguity-intragroup
+    target: {document: true}
+    field: paper_ambiguity
+    value_text: "'intragroup statistic differences in beta diversity': PERMANOVA by group tests differences between groups, not within"
+    section: Statistics analysis
+    quote: "the intragroup statistic differences in beta diversity were assessed using permutational multivariate analysis of variance (PERMANOVA) with 999 permutations"
+
+  - id: ambiguity-beta-no-statistic
+    target: {document: true}
+    field: paper_ambiguity
+    value_text: "caecum and colon beta diversity called 'significant separate clustering' with no PERMANOVA statistic or p value in the text or the Fig. 6 legend"
+    section: Antibiotic exposure resulted in an altered gut microbiota
+    quote: "the NMDS plots of the Bray Curtis distance showed significant separate clustering of samples according to groups (Fig. 6a and b)"
+
+  - id: ambiguity-adjusted-p
+    target: {document: true}
+    field: paper_ambiguity
+    value_text: "Methods count only BH-adjusted P < 0.05 as significant; the phylum results give P values (0.069, 0.056, 0.076) and 'tended to' without saying whether they are adjusted; Fig. 7 (genera) says adjusted"
+    section: Antibiotic exposure resulted in an altered gut microbiota
+    quote: "Firmicutes was increased in the caecum (P < 0.05) and tended to increase in the colon (P = 0.069) of antibiotic-treated piglets"
+
+  - id: ambiguity-strain-name
+    target: {document: true}
+    field: paper_ambiguity
+    value_text: "breed printed 'Topics hybrid × Piétrain'; probably the Topigs hybrid line (a typo), not corrected here"
+    section: Animal housing, treatments and sample collection
+    quote: "Eighteen piglets (Topics hybrid × Piétrain)"

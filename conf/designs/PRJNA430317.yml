@@ -1,0 +1,39 @@
+# Experimental design of PRJNA430317 (study 3), written and reviewed by hand. Loaded rows are tier 'curated'.
+#
+#   python -m app.ingest.design conf/designs/PRJNA430317.yml --dry-run
+#
+# Sources (2026-11-10):
+#   - BioSample attributes chem_administration (control / antibiotics), Replicate (a-i), Time (Day 0 / Day 39),
+#     env_feature (feces / caecum / colon), host_age (28 / 67 days): 54 samples, 18 subjects from
+#     chem_administration + Replicate (ncbi_study --subject-attr 'chem_administration+Replicate'
+#     --subject-distinct env_feature, ingest_run 737), exactly 3 samples each.
+#   - PMC7568366 Methods "Animal housing, treatments and sample collection": 18 piglets, individually housed,
+#     "randomly allocated to receive either a control diet (n = 9) or an antibiotic-containing diet (n = 9;
+#     tylosin phosphate, 100 mg/kg diet) by using computer-generated randomization lists"; "Treatments were
+#     balanced for weight, gender and litter"; "Piglet was considered the experimental unit for all analyses".
+# Decided 2026-11-10 (Rodrigo):
+#   - completely_randomized, unit animal: one pig per pen; allocation balanced for weight, sex and litter, but
+#     none of the three is a modelled block and none is recorded in NCBI (curated fact 'balanced-allocation').
+#   - time is NOT a design factor: feces at day 0 (before the diets) and caecum/colon digesta at day 39, so time
+#     is confounded with site and no pig is allocated to a time. The sampling day stays on the samples (asserted
+#     Time / host_age) and in findings' age windows; sample-level factors wait for a study that samples one site
+#     repeatedly (curated fact 'sampling-schedule').
+#   - subjects stay tier 'inferred': the paper confirms 18 piglets, 9 per diet, but never names the replicate
+#     letters or says the day-0 feces carry the same letter as that pig's day-39 digesta.
+
+bioproject: PRJNA430317
+subject_attr: chem_administration+Replicate   # subjects from the NCBI ingest: 'chem_administration+replicate-<group>/<letter>'
+
+experiment:
+  local_id: main
+  title: Tylosin phosphate (100 mg/kg) vs control diet in individually housed weaned piglets, days 28-67 of life
+  design_type: completely_randomized
+  experimental_unit: animal     # individually housed: the pig is the pen
+
+factors:
+  - name: treatment
+    kind: treatment
+    source: {biosample_attr: chem_administration}
+    levels:
+      control:     {control: true,  description: "basal diet (Additional file Table S1, CVB requirements), four equal meals daily, allowance adjusted weekly to body weight"}
+      antibiotics: {control: false, description: "basal diet + tylosin phosphate 100 mg/kg diet (antimicrobial growth promoter dose)"}
