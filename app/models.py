@@ -433,7 +433,7 @@ LEVEL_ROLES = ("member", "higher", "lower")
 FEATURE_FITS_MEASURE = (("relative_abundance", "genus"), ("relative_abundance", "otu"),
                         ("alpha_diversity", "alpha_index"), ("beta_diversity", "distance_metric"),
                         ("predicted_gene_count", "enzyme"))
-TESTS = ("GLM", "GLMM", "PERMANOVA", "LSD")
+TESTS = ("GLM", "GLMM", "PERMANOVA", "LSD", "t-test", "Kruskal-Wallis")   # a8f4d5f5fd45: study 3
 TEST_STAT_KINDS = ("F", "pseudo_F")
 STAT_FITS_TEST = (("GLM", "F"), ("GLMM", "F"), ("PERMANOVA", "pseudo_F"))
 VALUE_KINDS = ("mean",)

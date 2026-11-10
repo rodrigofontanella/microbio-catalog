@@ -106,6 +106,10 @@ def test_valid_spec_passes(jats, design):
     ("alpha-cae-richness-allium-control", lambda c: c["stat"].update(source="table", cell="p"), "no table row"),
     ("alpha-cae-richness-allium-control", lambda c: c["test"].update(stat_kind="F", value=4.03),
      "neither a table cell nor the quote"),
+    # study 3's tests print no statistic: no F or pseudo-F fits either (a8f4d5f5fd45)
+    ("beta-cae-unweighted", lambda c: c["test"].update(name="Kruskal-Wallis"), "doesn't come from a Kruskal-Wallis"),
+    ("host-adg", lambda c: c["test"].update(name="t-test"), "doesn't come from a t-test"),
+    ("alpha-cae-richness-allium-control", lambda c: c["test"].update(name="Wilcoxon"), "test is {name"),
 ])
 def test_rule_breaks(jats, design, claim_id, change, expect):
     errors = check(broken(claim_id, change), jats, design)
@@ -171,3 +175,13 @@ def test_review_date_as_yaml_reads_it():
     ts = yaml.safe_load("d: 2026-11-07 10:00:00")["d"]
     assert isinstance(ts, datetime) and review_errors({"reviewed_by": "R", "reviewed_on": ts})
     assert review_errors({"reviewed_by": "  ", "reviewed_on": date(2026, 11, 7)}) == ["review.reviewed_by '  ' is not a name"]
+
+
+@pytest.mark.parametrize("name", ["t-test", "Kruskal-Wallis"])
+def test_study3_tests_stand_alone(jats, design, name):
+    """Like LSD: a test name with no statistic passes check() and lands in the row's test column."""
+    spec = broken("alpha-cae-richness-allium-control", lambda c: c["test"].update(name=name))
+    assert check(spec, jats, design) == []
+    *_, (row, _levels) = finding_rows(spec, study_id=3, experiment_id=6, doc_id=9, factor_id=12, level_ids=LEVELS,
+                                      feature_set_ids={}, fulltext_sha256="abc")
+    assert (row["test"], row["test_stat_kind"], row["test_stat_value"]) == (name, None, None)

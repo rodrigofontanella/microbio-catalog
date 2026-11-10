@@ -52,7 +52,8 @@ TAXON_KINDS = {"genus", "otu"}
 FEATURE_FITS_MEASURE = {("relative_abundance", "genus"), ("relative_abundance", "otu"),
                         ("alpha_diversity", "alpha_index"), ("beta_diversity", "distance_metric"),
                         ("predicted_gene_count", "enzyme")}
-TESTS, TEST_STAT_KINDS = {"GLM", "GLMM", "PERMANOVA", "LSD"}, {"F", "pseudo_F"}
+TESTS = {"GLM", "GLMM", "PERMANOVA", "LSD", "t-test", "Kruskal-Wallis"}   # neither of the last two prints a statistic
+TEST_STAT_KINDS = {"F", "pseudo_F"}
 STAT_FITS_TEST = {("GLM", "F"), ("GLMM", "F"), ("PERMANOVA", "pseudo_F")}
 SPREAD_KINDS = {"se", "sd", "unstated"}
 TEST_KEYS = {"name", "stat_kind", "value", "df", "stat_cell", "df_cell"}
