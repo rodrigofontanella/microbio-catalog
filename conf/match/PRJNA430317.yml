@@ -1,0 +1,90 @@
+# Claim map for PRJNA430317 (study 3): which PGMD taxon each curated finding of PMC7568366 is tested against.
+# Read by app.reports.finding_vs_profile (read-only report; nothing here is loaded into Postgres or Delta).
+# Drafted by Claude 2026-11-10 from the genus listing of the profile, for review.
+#
+#   python -m app.reports.finding_vs_profile conf/match/PRJNA430317.yml --out docs/reports
+#
+# Decided 2026-11-10 (Rodrigo; handoff-2026-11-10-paper-vs-profile "Decided"):
+#   - a claim maps to a lineage PREFIX (family + genus, or phylum), never a bare name: PGMD strips Greengenes'
+#     brackets, so 'Prevotella' sits under Prevotellaceae AND Paraprevotellaceae ([Prevotella]), 'Ruminococcus'
+#     under Ruminococcaceae AND Lachnospiraceae ([Ruminococcus]). The genus's own family carries the verdict; the
+#     other lineage is listed under `also:` and tested as a row with no verdict.
+#   - absent genera are `not_testable` with the reason; no proxy taxon (Oscillospira is not Oscillibacter, the
+#     family Paraprevotellaceae is not the genus Paraprevotella).
+#   - every genus/phylum finding of the study must be listed here; the report stops on an unlisted one.
+#   - Tenericutes (decided after the first run, 2026-11-10): not testable. PGMD has no Tenericutes in the caecum;
+#     Greengenes 13_8 places Asteroleplasma in Firmicutes, so the paper's Tenericutes decrease (likely mostly
+#     Asteroleplasma, which the paper's reference may place in Mollicutes) and PGMD's phylum are different taxa.
+#     Firmicutes claims stay, with a note.
+#
+# A taxon selector names ranks of silver/feature_taxon (no prefixes, Greengenes 13_8 names as PGMD writes them).
+# The report sums Species rows whose columns equal every named rank, and stops unless they share ONE lineage prefix
+# down to the deepest named rank (a selector that hits two lineages is ambiguous, not summed).
+# Families are Greengenes 13_8's, not current nomenclature: Acidaminococcus, Mitsuokella, Phascolarctobacterium and
+# Selenomonas are in Veillonellaceae there (today Acidaminococcaceae / Selenomonadaceae). The family is a key, not a
+# claim about taxonomy.
+#
+# Sites: finding.site_term → the samples it means, as BioSample fields (all must match; biosample_attr assertions).
+# Age is part of the selector so a site sampled at two ages could never be pooled.
+
+bioproject: PRJNA430317
+pmcid: PMC7568366
+profile_source: pgmd
+level_check_field: chem_administration   # design level must equal this BioSample field per run (stops if not)
+review:
+  reviewed_by: Rodrigo Fontanella
+  reviewed_on: 2026-11-10
+
+sites:
+  UBERON:0001153: {env_local_scale: caecum, host_age: "67 days"}
+  UBERON:0001155: {env_local_scale: colon, host_age: "67 days"}
+  UBERON:0001988: {env_local_scale: feces, host_age: "28 days"}
+
+claims:
+  # ════ genera, Fig. 7 (endpoint, age 67) ═══════════════════════════════════════════════════════════════════
+  g-cae-dialister:             {taxon: {family: Veillonellaceae, genus: Dialister}}
+  g-col-dialister:             {taxon: {family: Veillonellaceae, genus: Dialister}}
+  g-cae-asteroleplasma:        {taxon: {family: Erysipelotrichaceae, genus: Asteroleplasma}}
+  g-col-asteroleplasma:        {taxon: {family: Erysipelotrichaceae, genus: Asteroleplasma}}
+  g-cae-prevotella:
+    taxon: {family: Prevotellaceae, genus: Prevotella}
+    also:
+      - {family: Paraprevotellaceae, genus: Prevotella}
+    note: "Greengenes' [Prevotella] in [Paraprevotellaceae]; PGMD drops the brackets"
+  g-cae-campylobacter:         {taxon: {family: Campylobacteraceae, genus: Campylobacter}}
+  g-col-selenomonas:           {taxon: {family: Veillonellaceae, genus: Selenomonas}}
+  g-col-mitsuokella:           {taxon: {family: Veillonellaceae, genus: Mitsuokella}}
+  g-col-acidaminococcus:       {taxon: {family: Veillonellaceae, genus: Acidaminococcus}}
+  g-cae-phascolarctobacterium: {taxon: {family: Veillonellaceae, genus: Phascolarctobacterium}}
+  g-cae-paraprevotella:
+    not_testable: "no genus Paraprevotella in the profile (only the family Paraprevotellaceae, which is not a stand-in)"
+  g-col-oscillibacter:
+    not_testable: "no genus Oscillibacter in the profile (Oscillospira is a different genus, not a stand-in)"
+  g-col-coprococcus:           {taxon: {family: Lachnospiraceae, genus: Coprococcus}}
+  g-col-blautia:               {taxon: {family: Lachnospiraceae, genus: Blautia}}
+  g-col-ruminococcus:
+    taxon: {family: Ruminococcaceae, genus: Ruminococcus}
+    also:
+      - {family: Lachnospiraceae, genus: Ruminococcus}
+    note: "Greengenes' [Ruminococcus] in Lachnospiraceae (R. gnavus / torques group); PGMD drops the brackets"
+  g-col-butyricicoccus:        {taxon: {family: Ruminococcaceae, genus: Butyricicoccus}}
+
+  # ════ endpoint phyla (Fig. S6, age 67) ════════════════════════════════════════════════════════════════════
+  p-cae-firmicutes:
+    taxon: {phylum: Firmicutes}
+    note: &n_firm "PGMD's Firmicutes includes Asteroleplasma (Greengenes 13_8: Erysipelotrichaceae), which the paper's reference may count as Tenericutes: not strictly like-for-like"
+  p-col-firmicutes-trend:
+    taxon: {phylum: Firmicutes}
+    note: *n_firm
+  p-cae-bacteroidetes-trend:   {taxon: {phylum: Bacteroidetes}}
+  p-col-bacteroidetes-trend:   {taxon: {phylum: Bacteroidetes}}
+  p-cae-tenericutes:
+    not_testable: &n_ten "phylum not comparable: Greengenes 13_8 puts Asteroleplasma in Erysipelotrichaceae (Firmicutes), other references in Anaeroplasmataceae (Tenericutes); the paper's reference (Supplementary S1.3) is not in the JATS"
+  p-col-tenericutes-trend:
+    not_testable: *n_ten
+
+  # ════ baseline phyla (d0 feces, age 28, before the diets; Fig. 1b) ════════════════════════════════════════
+  b-feces-firmicutes-null:     {taxon: {phylum: Firmicutes}}
+  b-feces-bacteroidetes-null:  {taxon: {phylum: Bacteroidetes}}
+  b-feces-proteobacteria-null: {taxon: {phylum: Proteobacteria}}
+  b-feces-spirochaetes-null:   {taxon: {phylum: Spirochaetes}}
